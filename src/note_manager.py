@@ -6,6 +6,7 @@ import re
 import logging
 import subprocess
 import platform
+import shutil
 
 class NoteManager:
     def __init__(self):
@@ -69,26 +70,19 @@ class NoteManager:
             logging.info(f"Moving audio file from {audio_file} to {new_audio_path}")
             
             try:
-                # Use system copy command
-                if platform.system() == 'Windows':
-                    # Use robocopy for Windows
-                    src_dir = str(audio_file.parent)
-                    dst_dir = str(new_audio_path.parent)
-                    filename = audio_file.name
-                    
-                    cmd = ['robocopy', src_dir, dst_dir, filename, '/MOVE']
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    
-                    # Robocopy success codes are 0-7
-                    if result.returncode > 7:
-                        raise Exception(f"Robocopy failed: {result.stderr}")
-                    
-                    logging.info("Audio file moved successfully using robocopy")
-                else:
-                    # For non-Windows systems
-                    cmd = ['mv', str(audio_file), str(new_audio_path)]
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                # Use shutil for file operations
+                import shutil
+                
+                # Copy file first
+                shutil.copy2(str(audio_file), str(new_audio_path))
+                
+                # Verify copy was successful
+                if new_audio_path.exists() and new_audio_path.stat().st_size == audio_file.stat().st_size:
+                    # Only delete original after successful copy
+                    audio_file.unlink()
                     logging.info("Audio file moved successfully")
+                else:
+                    raise Exception("File copy verification failed")
                 
             except Exception as e:
                 logging.error(f"Failed to move audio file: {str(e)}")
