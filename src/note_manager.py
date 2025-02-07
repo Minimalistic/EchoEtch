@@ -3,6 +3,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict
 import re
+import logging
+import subprocess
+import platform
 
 class NoteManager:
     def __init__(self):
@@ -21,6 +24,20 @@ class NoteManager:
         # Trim spaces from ends
         return sanitized.strip()
 
+    def _get_daily_folder(self) -> Path:
+        """
+        Get or create a daily folder for storing audio files
+        Returns:
+            Path: Path to the daily folder
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        daily_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes') / today / "audio"
+        logging.debug(f"Daily folder path: {daily_folder}")
+        logging.debug(f"Daily folder exists: {daily_folder.exists()}")
+        daily_folder.mkdir(parents=True, exist_ok=True)
+        logging.debug(f"Daily folder created/verified")
+        return daily_folder
+
     def create_note(self, processed_content: Dict, audio_file: Path):
         """
         Create a markdown note in the Obsidian vault
@@ -29,37 +46,80 @@ class NoteManager:
             processed_content (Dict): Processed content from Ollama
             audio_file (Path): Path to the original audio file
         """
+        import subprocess
+        import platform
+        
+        # First, handle the audio file move
+        daily_folder = self._get_daily_folder()
+        new_audio_path = daily_folder / audio_file.name
+        
+        # Move audio file to daily folder if it's not already there
+        if audio_file.parent != daily_folder:
+            new_audio_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Handle case where file already exists
+            if new_audio_path.exists():
+                base = new_audio_path.stem
+                suffix = new_audio_path.suffix
+                counter = 1
+                while new_audio_path.exists():
+                    new_audio_path = daily_folder / f"{base}_{counter}{suffix}"
+                    counter += 1
+            
+            logging.info(f"Moving audio file from {audio_file} to {new_audio_path}")
+            
+            try:
+                # Use system copy command
+                if platform.system() == 'Windows':
+                    # Use robocopy for Windows
+                    src_dir = str(audio_file.parent)
+                    dst_dir = str(new_audio_path.parent)
+                    filename = audio_file.name
+                    
+                    cmd = ['robocopy', src_dir, dst_dir, filename, '/MOVE']
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    
+                    # Robocopy success codes are 0-7
+                    if result.returncode > 7:
+                        raise Exception(f"Robocopy failed: {result.stderr}")
+                    
+                    logging.info("Audio file moved successfully using robocopy")
+                else:
+                    # For non-Windows systems
+                    cmd = ['mv', str(audio_file), str(new_audio_path)]
+                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    logging.info("Audio file moved successfully")
+                
+            except Exception as e:
+                logging.error(f"Failed to move audio file: {str(e)}")
+                raise Exception(f"Failed to move audio file: {str(e)}")
+        
+        # Now create the note
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         sanitized_title = self._sanitize_filename(processed_content['title'][:30])
         note_filename = f"{timestamp}_{sanitized_title}.md"
         note_path = self.notes_folder / note_filename
-
-        # Create relative link to audio file
-        audio_rel_path = os.path.relpath(audio_file, self.notes_folder)
+        
+        # Create relative link to audio file in daily folder
+        audio_rel_path = os.path.relpath(new_audio_path, self.notes_folder)
         
         # Build note content
-        note_content = f"""# {processed_content['title']}
-
-{processed_content['content']}
-
-## Tags
-{' '.join(['#' + tag for tag in processed_content['tags']])}
-
-## Todos
-{chr(10).join(['- [ ] ' + todo for todo in processed_content['todos']])}
-
-## Source
-- [[{audio_rel_path}|Original Audio]]
-"""
-
+        note_content = [f"# {processed_content['title']}\n"]
+        note_content.append(processed_content['content'])
+        
+        if processed_content.get('tags') and len(processed_content['tags']) > 0:
+            note_content.append("\n## Tags")
+            note_content.append(' '.join(['#' + tag for tag in processed_content['tags']]))
+        
+        if processed_content.get('todos') and len(processed_content['todos']) > 0:
+            note_content.append("\n## Todos")
+            note_content.append('\n'.join(['- [ ] ' + todo for todo in processed_content['todos']]))
+        
+        note_content.append(f"\n## Source\n- [[{audio_rel_path}|Original Audio]]")
+        
         try:
-            # Write the note
-            note_path.write_text(note_content, encoding='utf-8')
-            
-            # Move audio file to Obsidian vault if it's not already there
-            if not audio_file.is_relative_to(self.vault_path):
-                new_audio_path = self.notes_folder / audio_file.name
-                audio_file.rename(new_audio_path)
-                
+            note_path.write_text('\n'.join(note_content), encoding='utf-8')
+            logging.info(f"Note created at {note_path}")
         except Exception as e:
+            logging.error(f"Failed to create note: {str(e)}")
             raise Exception(f"Failed to create note: {str(e)}")

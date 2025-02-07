@@ -28,6 +28,7 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.info("Ollama processor initialized")
             self.note_manager = NoteManager()
             logging.info("Note manager initialized")
+            self.processed_files = set()  # Track processed files
         except Exception as e:
             logging.error(f"Error during initialization: {str(e)}")
             raise
@@ -38,8 +39,20 @@ class AudioFileHandler(FileSystemEventHandler):
         
         file_path = Path(event.src_path)
         if file_path.suffix.lower() in ['.mp3', '.wav', '.m4a']:
+            # Check if we've already processed this file
+            if file_path.name in self.processed_files:
+                logging.info(f"File already processed, skipping: {file_path}")
+                return
+                
             logging.info(f"New audio file detected: {file_path}")
             self._process_audio_file(file_path)
+            
+            # Add to processed files set
+            self.processed_files.add(file_path.name)
+            
+            # Cleanup old entries (optional, prevents unlimited growth)
+            if len(self.processed_files) > 1000:
+                self.processed_files.clear()
 
     def _process_audio_file(self, file_path):
         try:
