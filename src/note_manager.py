@@ -90,7 +90,10 @@ class NoteManager:
         
         # Now create the note
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        sanitized_title = self._sanitize_filename(processed_content['title'][:30])
+        
+        # Ensure we have a valid title
+        title = processed_content.get('title', 'Untitled Note')
+        sanitized_title = self._sanitize_filename(title[:30])
         note_filename = f"{timestamp}_{sanitized_title}.md"
         note_path = self.notes_folder / note_filename
         
@@ -98,23 +101,99 @@ class NoteManager:
         audio_rel_path = os.path.relpath(new_audio_path, self.notes_folder)
         
         # Build note content
-        note_content = [f"# {processed_content['title']}\n"]
+        note_content = []
         
-        # Ensure content is a string
-        if isinstance(processed_content['content'], list):
-            note_content.append('\n'.join(processed_content['content']))
-        else:
-            note_content.append(str(processed_content['content']))
-        
+        # Add title and tags at the top
+        note_content.append(f"# {title}")
         if processed_content.get('tags') and len(processed_content['tags']) > 0:
-            note_content.append("\n## Tags")
-            note_content.append(' '.join(['#' + tag for tag in processed_content['tags']]))
+            # Tags should already have # prefix from processor
+            note_content.append(' '.join(processed_content['tags']))
+        note_content.append("")  # Add blank line after tags
         
+        # Add main content
+        if isinstance(processed_content.get('content'), list):
+            content = '\n'.join(processed_content['content'])
+        else:
+            content = str(processed_content.get('content', ''))
+            
+        # Clean up the content
+        content_lines = content.split('\n')
+        filtered_lines = []
+        prev_empty = False
+        skip_next_line = False
+        section_header = None
+        
+        for i, line in enumerate(content_lines):
+            line = line.rstrip()  # Remove trailing whitespace
+            
+            # Skip empty sections
+            if line.startswith('##'):
+                section_header = line
+                continue
+            elif section_header:
+                if line.strip():
+                    filtered_lines.append(section_header)
+                    filtered_lines.append(line)
+                section_header = None
+                continue
+            
+            # Skip the title line and any duplicate tag lines
+            if line.startswith('# ') and line[2:].strip() == title:
+                continue
+            if any(tag.lstrip('#') in line for tag in processed_content.get('tags', [])):
+                continue
+            if line.strip() == '## Tags':
+                skip_next_line = True
+                continue
+            if skip_next_line:
+                skip_next_line = False
+                continue
+                
+            # Skip lines that mention todos
+            if processed_content.get('todos'):
+                if any(todo.lower() in line.lower() for todo in processed_content['todos']):
+                    continue
+            
+            # Handle bullet points
+            if line.lstrip().startswith('- '):
+                line = '  ' + line.lstrip()  # Ensure consistent indentation
+                
+            # Handle empty lines - maximum one empty line between content
+            if not line.strip():
+                if not prev_empty:
+                    filtered_lines.append('')
+                    prev_empty = True
+            else:
+                filtered_lines.append(line)
+                prev_empty = False
+        
+        # Remove any trailing empty lines before adding to note_content
+        while filtered_lines and not filtered_lines[-1].strip():
+            filtered_lines.pop()
+            
+        # Remove any empty sections
+        i = 0
+        while i < len(filtered_lines):
+            if filtered_lines[i].startswith('##'):
+                if i + 1 >= len(filtered_lines) or not filtered_lines[i + 1].strip():
+                    filtered_lines.pop(i)
+                    continue
+            i += 1
+            
+        note_content.extend(filtered_lines)
+        
+        # Add todos section if present
         if processed_content.get('todos') and len(processed_content['todos']) > 0:
-            note_content.append("\n## Todos")
+            if note_content and note_content[-1].strip():  # If last line isn't empty
+                note_content.append("")  # Add single empty line before todos
+            note_content.append("## Todos")
             note_content.append('\n'.join(['- [ ] ' + todo for todo in processed_content['todos']]))
         
-        note_content.append(f"\n## Source\n- [[{audio_rel_path}|Original Audio]]")
+        # Add source section
+        if note_content and note_content[-1].strip():  # If last line isn't empty
+            note_content.append("")  # Add single empty line before source
+        note_content.append("## Source")
+        note_content.append(f"- [[{audio_rel_path}|Original Audio]]")
         
         try:
             note_path.write_text('\n'.join(note_content), encoding='utf-8')

@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import logging
+import re
 from typing import Dict
 
 class OllamaProcessor:
@@ -15,91 +16,10 @@ class OllamaProcessor:
         # Context length in tokens (default 12k)
         self.context_length = int(os.getenv('OLLAMA_CONTEXT_LENGTH', '12000'))
 
-    def process_transcription(self, text: str) -> Dict:
-        """
-        Process transcription with Ollama to create structured note content
-        """
-        prompt = f'''
-        Transform this transcription into a well-structured note with clear sections and hierarchy, formatted in proper markdown syntax.
-        You are an expert at identifying structure in spoken content and creating clean, readable markdown.
-
-        Key Processing Rules:
-        1. Document Structure:
-           - Use # for the main title
-           - Use ## for major sections
-           - Use ### for subsections
-           - Use #### for deeper subsections
-           - Avoid using bold text for section headers - use appropriate heading levels instead
-           
-        2. Text Formatting:
-           - Use **bold** only for emphasis within text, not for structural elements
-           - Use *italic* for lighter emphasis or terms being defined
-           - Use `code` for technical terms, commands, or file names
-           - Use > only for actual quotes or important callouts
-           - Use --- for horizontal rules to separate major content areas if needed
-        
-        3. Lists and Items:
-           - Use - for unordered lists
-           - Use 1. for ordered lists when sequence matters
-           - Use - [ ] for action items/todos
-           - Maintain consistent indentation for nested lists
-           - Use regular bullet points for feature lists, not blockquotes
-           
-        4. Content Organization:
-           - Start with a clear title and introduction
-           - Group related content under appropriate heading levels
-           - Use lists for multiple related items
-           - Create clear paragraph breaks with blank lines
-           - Use tables for structured data
-           
-        5. Metadata and Special Sections:
-           - Create a ## Tags section with hashtags
-           - Create a ## Todos section with checkboxes for ALL action items
-           - Add a ## Source section if applicable
-           - Format dates as YYYY-MM-DD
-           - Use consistent formatting for links and references
-
-        6. Todo Extraction (Important):
-           - Extract ONLY concrete, actionable tasks
-           - Look for tasks that have:
-             * Clear next actions (e.g., "talk to Mike about X", "update the docs")
-             * Specific deadlines or timeframes
-             * Defined deliverables or outcomes
-           - Do NOT convert to todos:
-             * Rhetorical statements ("I need to figure out why...")
-             * General musings or wonderings
-             * Personal reflections or questions
-             * Vague or undefined challenges
-           - When in doubt, prefer NOT creating a todo unless it's clearly actionable
-           - Add identified todos to both the content's Todo section AND the todos array in the JSON response
-
-        7. Voice Commands:
-           Always recognize these explicit voice commands:
-           - "Make a todo: <task>" -> Create a todo item
-           - "Add todo: <task>" -> Create a todo item
-           - "Create section: <title>" -> Create a new section with given title
-           - "New section: <title>" -> Create a new section with given title
-           - "Tag this: <tag>" -> Add a tag
-           - "Add tag: <tag>" -> Add a tag
-           - "Quote this: <text>" -> Format as blockquote
-           - "Important note: <text>" -> Format as callout or emphasis
-           - "Technical note: <text>" -> Format as technical note with code formatting
-           These commands take precedence over regular text interpretation and should always be processed literally.
-
-        Input Text:
-        {text}
-        
-        Return ONLY a JSON response. IMPORTANT:
-        1. Use double quotes for all JSON keys and string values
-        2. Properly escape all newlines in the content as \\n
-        3. Do not use any actual newlines or indentation in the JSON content
-        4. Format exactly like this example:
-        {{"title":"Example Title","content":"# Heading\\n\\n## Section\\n- Point 1\\n- Point 2\\n\\n## Todos\\n- [ ] Task 1\\n- [ ] Task 2","tags":["tag1","tag2"],"todos":["Task 1","Task 2"]}}
-        '''
-
+    def _send_to_ollama(self, prompt: str) -> str:
         try:
-            logging.info("Starting initial Mistral processing...")
-            logging.debug(f"Input text length: {len(text)} characters")
+            logging.info("Starting initial Ollama processing...")
+            logging.debug(f"Input text length: {len(prompt)} characters")
             
             response = requests.post(
                 self.api_url,
@@ -113,35 +33,211 @@ class OllamaProcessor:
             )
             response.raise_for_status()
             
-            result = response.json()
-            processed_text = result['response']
-            logging.info(f"Received Mistral response: {len(processed_text)} characters")
-            logging.debug(f"Raw Mistral response: {processed_text[:200]}...")
-            
-            # Clean up the response to handle markdown code blocks and other formatting
-            processed_text = processed_text.strip()
-            # Remove markdown code block markers if present
-            if processed_text.startswith('```'):
-                processed_text = '\n'.join(processed_text.split('\n')[1:-1])
-            # Remove any "json" language identifier if present
-            processed_text = processed_text.replace('json\n', '', 1)
-            # Ensure we're working with clean JSON by removing any leading/trailing whitespace
-            processed_text = processed_text.strip()
-            
-            try:
-                initial_result = json.loads(processed_text)
-                logging.info("Successfully parsed Mistral JSON response")
-                return initial_result
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Mistral JSON: {str(e)}")
-                logging.error(f"Raw response that failed to parse: {processed_text}")
-                return {
-                    "title": text[:30].strip() + "...",
-                    "content": text,
-                    "tags": [],
-                    "todos": []
-                }
-                
+            result = response.json()['response']
+            logging.info(f"Received Ollama response: {len(result)} characters")
+            logging.debug(f"Raw Ollama response: {result[:500]}...")
+            return result
         except Exception as e:
-            logging.error(f"Mistral processing failed: {str(e)}")
+            logging.error(f"Ollama processing failed: {str(e)}")
             raise
+
+    def process_transcription(self, text: str) -> Dict:
+        """
+        Process transcription with Ollama to create structured note content
+        """
+        prompt = '''
+        You are an expert at converting spoken text into well-structured markdown notes.
+        Convert the following transcription into markdown, following these rules:
+
+        1. Document Structure:
+           - Start with a single "# " (with a space) for the main title
+           - Place all tags on the line immediately after the title, WITH # prefix (e.g., "#development #project-management")
+           - Use ## for major sections
+           - Use ### for subsections
+           - Never repeat the title anywhere in the document
+           - Maximum one empty line between sections
+           
+        2. Text Formatting and Content Rules:
+           - Keep sentences together on the same line - don't split them across lines
+           - Use **bold** for emphasis within text
+           - Use *italic* for lighter emphasis
+           - Use `code` for technical terms
+           - For bullet points:
+             * Use "- " (hyphen + space) for bullet points
+             * Indent bullet points with 2 spaces
+             * Keep bullet point text on the same line
+           - For numbered lists:
+             * Keep the entire point on one line
+             * Don't split sentences across lines unnecessarily
+           - Never leave empty sections (like an empty "Important:" section)
+           - Remove any unnecessary line breaks within paragraphs
+
+        3. Task Handling:
+           - Convert ANY of these into todos:
+             * Statements about things that need to be done
+             * Anything marked as "Important"
+             * Mentions of future meetings or reviews
+             * Follow-up items
+             * Deadlines or timeframes
+           - Never write "Todo:" or "Important:" in the text - convert these directly to todos
+           - Never mention a task in the content if it's in the todos section
+           - Don't create empty sections (like an empty "Important:" section)
+
+        Format your response as a JSON object with these exact fields:
+        {
+            "title": "The main title without any # prefix",
+            "content": "The full markdown content with proper newlines escaped as \\n",
+            "tags": ["tag1", "tag2"],
+            "todos": ["task1", "task2"]
+        }
+
+        Here's the transcription to process:
+''' + text
+
+        try:
+            response = self._send_to_ollama(prompt)
+            logging.debug(f"Processing response: {response[:500]}...")
+            
+            # First try to parse as JSON directly
+            try:
+                result = json.loads(response)
+                logging.info("Successfully parsed JSON response")
+                if not isinstance(result, dict):
+                    raise ValueError("Response is not a dictionary")
+                if 'title' not in result:
+                    raise ValueError("Response missing required 'title' field")
+                
+                # Clean up the content
+                if 'content' in result:
+                    # Remove multiple empty lines and clean up content
+                    lines = result['content'].split('\n')
+                    cleaned_lines = []
+                    prev_empty = False
+                    section_header = None
+                    
+                    for line in lines:
+                        line = line.rstrip()
+                        
+                        # Skip empty sections
+                        if line.startswith('##'):
+                            section_header = line
+                            continue
+                        elif section_header:
+                            if line.strip():
+                                cleaned_lines.append(section_header)
+                                cleaned_lines.append(line)
+                            section_header = None
+                            continue
+                            
+                        # Skip lines that mention todos
+                        if any(todo.lower() in line.lower() for todo in result.get('todos', [])):
+                            continue
+                            
+                        # Handle empty lines
+                        if not line.strip():
+                            if not prev_empty:
+                                cleaned_lines.append('')
+                                prev_empty = True
+                        else:
+                            # Ensure bullet points are properly indented
+                            if line.lstrip().startswith('- '):
+                                line = '  ' + line.lstrip()
+                            cleaned_lines.append(line)
+                            prev_empty = False
+                    
+                    # Remove trailing empty lines
+                    while cleaned_lines and not cleaned_lines[-1].strip():
+                        cleaned_lines.pop()
+                        
+                    result['content'] = '\n'.join(cleaned_lines)
+                
+                # Ensure tags have # prefix
+                if 'tags' in result:
+                    result['tags'] = ['#' + tag.lstrip('#') for tag in result['tags']]
+                
+                return result
+            except json.JSONDecodeError as e:
+                logging.info(f"Direct JSON parse failed: {str(e)}")
+                # If direct JSON parsing fails, try to extract JSON from the response
+                # Look for content between triple backticks if present
+                json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+                if json_match:
+                    try:
+                        result = json.loads(json_match.group(1))
+                        logging.info("Successfully parsed JSON from code block")
+                        if not isinstance(result, dict):
+                            raise ValueError("Response is not a dictionary")
+                        if 'title' not in result:
+                            raise ValueError("Response missing required 'title' field")
+                        return result
+                    except json.JSONDecodeError as e:
+                        logging.info(f"JSON code block parse failed: {str(e)}")
+                
+                # If we still don't have valid JSON, create it from the markdown
+                logging.info("Falling back to markdown parsing")
+                lines = response.strip().split('\n')
+                title = None
+                tags = []
+                todos = []
+                content_lines = []
+                in_todos_section = False
+                prev_empty = False
+
+                for line in lines:
+                    line = line.rstrip()
+                    
+                    # Handle title
+                    if not title and line.strip().startswith('# '):
+                        title = line[2:].strip()
+                        continue
+                        
+                    # Handle tags
+                    if not tags and not line.startswith('#') and ' ' in line:
+                        potential_tags = line.strip().split()
+                        if all(tag.isalnum() or '-' in tag for tag in potential_tags):
+                            tags = potential_tags
+                            continue
+                    
+                    # Handle todos section
+                    if line.strip().lower() == '## todos':
+                        in_todos_section = True
+                        continue
+                        
+                    # Collect todos
+                    if line.strip().startswith('- [ ]'):
+                        todos.append(line[6:].strip())
+                        continue
+                        
+                    # Handle regular content
+                    if not in_todos_section:
+                        # Manage empty lines
+                        if not line.strip():
+                            if not prev_empty:
+                                content_lines.append('')
+                                prev_empty = True
+                        else:
+                            content_lines.append(line)
+                            prev_empty = False
+
+                if not title:
+                    logging.warning("No title found in markdown, using default")
+                    title = "Untitled Note"
+
+                # Create proper JSON response
+                result = {
+                    "title": title,
+                    "content": '\n'.join(content_lines).strip(),
+                    "tags": tags,
+                    "todos": todos
+                }
+                logging.info("Successfully created result from markdown")
+                return result
+
+        except Exception as e:
+            logging.error(f"Error during Ollama processing: {str(e)}")
+            return {
+                "title": "Untitled Note",
+                "content": text,
+                "tags": [],
+                "todos": []
+            }
