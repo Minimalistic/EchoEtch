@@ -198,12 +198,14 @@ class NoteManager:
         if note_content and note_content[-1].strip():  # If last line isn't empty
             note_content.append("")  # Add single empty line before source
         note_content.append("## Source")
-        note_content.append(f"![[{audio_rel_path}|Original Audio]]")
         
-        # Add original transcription in collapsible section
-        note_content.append("")  # Add empty line for spacing
-        note_content.append("### Original Transcription")
-        note_content.append("> [!abstract]- Click to view original transcription")
+        # Add audio source as a callout
+        note_content.append("> [!audio]+ Audio Recording")
+        note_content.append(f"> ![[{audio_rel_path}|Original Audio]]")
+        
+        # Add original transcription in callout
+        note_content.append("")  # Add empty line between callouts
+        note_content.append("> [!quote]- Original Transcription")
         note_content.append("> ```")
         note_content.append("> " + processed_content.get('original_transcription', 'Original transcription not available').replace('\n', '\n> '))
         note_content.append("> ```")
