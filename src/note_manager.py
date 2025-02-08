@@ -97,7 +97,8 @@ class NoteManager:
         
         # Now create the note with matching naming convention
         note_filename = f"{date_time}_{sanitized_title}.md"
-        note_path = self.notes_folder / note_filename
+        # Place the note in the same day folder as the audio, but one level up
+        note_path = daily_folder.parent / note_filename
         
         # Create relative link to audio file
         # Use relative path from vault root to audio file for Obsidian compatibility
@@ -197,7 +198,7 @@ class NoteManager:
         if note_content and note_content[-1].strip():  # If last line isn't empty
             note_content.append("")  # Add single empty line before source
         note_content.append("## Source")
-        note_content.append(f"- [[{audio_rel_path}|Original Audio]]")
+        note_content.append(f"![[{audio_rel_path}|Original Audio]]")
         
         try:
             note_path.write_text('\n'.join(note_content), encoding='utf-8')
