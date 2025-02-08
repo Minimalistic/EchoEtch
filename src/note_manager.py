@@ -99,7 +99,12 @@ class NoteManager:
         
         # Build note content
         note_content = [f"# {processed_content['title']}\n"]
-        note_content.append(processed_content['content'])
+        
+        # Ensure content is a string
+        if isinstance(processed_content['content'], list):
+            note_content.append('\n'.join(processed_content['content']))
+        else:
+            note_content.append(str(processed_content['content']))
         
         if processed_content.get('tags') and len(processed_content['tags']) > 0:
             note_content.append("\n## Tags")
