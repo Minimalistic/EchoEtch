@@ -6,17 +6,15 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import logging
 
-# Set up logging
+# Set up logging with more detailed format
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
 )
 
 from src.transcriber import WhisperTranscriber
 from src.processor import OllamaProcessor
 from src.note_manager import NoteManager
-
-load_dotenv()
 
 class AudioFileHandler(FileSystemEventHandler):
     def __init__(self):
@@ -81,29 +79,52 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.exception("Full error trace:")
 
 def main():
+    # Load environment variables
+    load_dotenv()
+    
     audio_folder = os.getenv('AUDIO_INPUT_FOLDER')
     if not audio_folder:
         logging.error("AUDIO_INPUT_FOLDER not set in .env file")
         return
 
-    audio_folder_path = Path(audio_folder)
+    # Normalize path and resolve any symlinks that might be present in iCloud Drive
+    audio_folder_path = Path(audio_folder).resolve()
+    logging.info(f"Resolved audio folder path: {audio_folder_path}")
+
     if not audio_folder_path.exists():
-        logging.error(f"Audio folder does not exist: {audio_folder}")
+        logging.error(f"Audio folder does not exist: {audio_folder_path}")
         return
 
-    logging.info(f"Starting file monitor for: {audio_folder}")
+    if not audio_folder_path.is_dir():
+        logging.error(f"Path exists but is not a directory: {audio_folder_path}")
+        return
+
+    # List current contents of the directory
+    try:
+        files = list(audio_folder_path.glob('*'))
+        logging.info(f"Current files in directory: {[f.name for f in files]}")
+    except Exception as e:
+        logging.error(f"Error listing directory contents: {str(e)}")
+        return
+
+    logging.info(f"Starting file monitor for: {audio_folder_path}")
     event_handler = AudioFileHandler()
     observer = Observer()
-    observer.schedule(event_handler, audio_folder, recursive=False)
-    observer.start()
-
-    logging.info("File monitor started successfully")
+    
     try:
+        observer.schedule(event_handler, str(audio_folder_path), recursive=False)
+        observer.start()
+        logging.info("File monitor started successfully")
+        
         while True:
             time.sleep(1)
+    except Exception as e:
+        logging.error(f"Error in file monitoring: {str(e)}")
+        observer.stop()
     except KeyboardInterrupt:
         observer.stop()
         logging.info("\nStopping folder monitoring...")
+    
     observer.join()
 
 if __name__ == "__main__":

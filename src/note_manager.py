@@ -100,8 +100,8 @@ class NoteManager:
         note_path = self.notes_folder / note_filename
         
         # Create relative link to audio file
-        # Use relative path from note location to audio file
-        audio_rel_path = os.path.relpath(new_audio_path, note_path.parent)
+        # Use relative path from vault root to audio file for Obsidian compatibility
+        audio_rel_path = os.path.relpath(new_audio_path, self.vault_path)
         audio_rel_path = audio_rel_path.replace('\\', '/')  # Convert Windows path to forward slashes for markdown
         
         # Build note content
