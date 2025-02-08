@@ -115,6 +115,10 @@ class NoteManager:
             note_content.append(' '.join(processed_content['tags']))
         note_content.append("")  # Add blank line after tags
         
+        # Add source audio after title and tags
+        note_content.append(f"Source Audio: ![[{audio_rel_path}]]")
+        note_content.append("")  # Add blank line after source
+        
         # Add main content
         if isinstance(processed_content.get('content'), list):
             content = '\n'.join(processed_content['content'])
@@ -194,17 +198,10 @@ class NoteManager:
             note_content.append("## Tasks")
             note_content.append('\n'.join(['- [ ] ' + task for task in processed_content['tasks']]))
         
-        # Add source section
-        if note_content and note_content[-1].strip():  # If last line isn't empty
-            note_content.append("")  # Add single empty line before source
-        note_content.append("## Source")
-        
-        # Add audio source as a callout
-        note_content.append("> [!audio]+ Audio Recording")
-        note_content.append(f"> ![[{audio_rel_path}|Original Audio]]")
-        
         # Add original transcription in callout
-        note_content.append("")  # Add empty line between callouts
+        if note_content and note_content[-1].strip():  # If last line isn't empty
+            note_content.append("")  # Add single empty line before original transcription
+        
         note_content.append("> [!quote]- Original Transcription")
         note_content.append("> ```")
         note_content.append("> " + processed_content.get('original_transcription', 'Original transcription not available').replace('\n', '\n> '))
