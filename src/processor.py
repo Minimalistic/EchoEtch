@@ -13,6 +13,8 @@ class OllamaProcessor:
             raise ValueError("OLLAMA_MODEL must be set in environment variables")
         # Higher temperature for more creative formatting
         self.temperature = float(os.getenv('OLLAMA_TEMPERATURE', '0.7'))
+        # Context length in tokens (default 12k)
+        self.context_length = int(os.getenv('OLLAMA_CONTEXT_LENGTH', '12000'))
 
     def process_transcription(self, text: str) -> Dict:
         """
@@ -78,7 +80,8 @@ class OllamaProcessor:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": self.temperature
+                    "temperature": self.temperature,
+                    "context_length": self.context_length
                 }
             )
             response.raise_for_status()
@@ -161,7 +164,8 @@ class OllamaProcessor:
                     "model": self.gemma_model,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": self.temperature
+                    "temperature": self.temperature,
+                    "context_length": self.context_length
                 }
             )
             response.raise_for_status()
