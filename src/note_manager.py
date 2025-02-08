@@ -153,9 +153,9 @@ class NoteManager:
                 skip_next_line = False
                 continue
                 
-            # Skip lines that mention todos
-            if processed_content.get('todos'):
-                if any(todo.lower() in line.lower() for todo in processed_content['todos']):
+            # Skip lines that mention tasks
+            if processed_content.get('tasks'):
+                if any(task.lower() in line.lower() for task in processed_content['tasks']):
                     continue
             
             # Handle bullet points
@@ -186,12 +186,12 @@ class NoteManager:
             
         note_content.extend(filtered_lines)
         
-        # Add todos section if present
-        if processed_content.get('todos') and len(processed_content['todos']) > 0:
+        # Add tasks section if present
+        if processed_content.get('tasks') and len(processed_content['tasks']) > 0:
             if note_content and note_content[-1].strip():  # If last line isn't empty
-                note_content.append("")  # Add single empty line before todos
-            note_content.append("## Todos")
-            note_content.append('\n'.join(['- [ ] ' + todo for todo in processed_content['todos']]))
+                note_content.append("")  # Add single empty line before tasks
+            note_content.append("## Tasks")
+            note_content.append('\n'.join(['- [ ] ' + task for task in processed_content['tasks']]))
         
         # Add source section
         if note_content and note_content[-1].strip():  # If last line isn't empty

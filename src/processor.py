@@ -73,22 +73,24 @@ class OllamaProcessor:
            - Remove any unnecessary line breaks within paragraphs
 
         3. Task Handling:
-           - Convert ANY of these into todos:
-             * Statements about things that need to be done
-             * Anything marked as "Important"
-             * Mentions of future meetings or reviews
-             * Follow-up items
-             * Deadlines or timeframes
-           - Never write "Todo:" or "Important:" in the text - convert these directly to todos
-           - Never mention a task in the content if it's in the todos section
-           - Don't create empty sections (like an empty "Important:" section)
+           - Create tasks only when there are clear action items:
+             * Explicit statements about tasks that need to be done
+             * Items specifically marked as "todo" or "to do"
+             * Items marked as "Important" that indicate required actions
+             * Clear follow-up actions or commitments
+             * Specific deadlines that require action
+           - Don't force regular statements or information into tasks
+           - Don't create tasks from general discussion points or information sharing
+           - Never write "Todo:" or "Important:" in the text - convert these directly to tasks
+           - Never mention a task in the content if it's in the tasks section
+           - Don't create empty sections
 
         Format your response as a JSON object with these exact fields:
         {
             "title": "The main title without any # prefix",
             "content": "The full markdown content with proper newlines escaped as \\n",
             "tags": ["tag1", "tag2"],
-            "todos": ["task1", "task2"]
+            "tasks": ["task1", "task2"]
         }
 
         Here's the transcription to process:
@@ -129,8 +131,8 @@ class OllamaProcessor:
                             section_header = None
                             continue
                             
-                        # Skip lines that mention todos
-                        if any(todo.lower() in line.lower() for todo in result.get('todos', [])):
+                        # Skip lines that mention tasks
+                        if any(task.lower() in line.lower() for task in result.get('tasks', [])):
                             continue
                             
                         # Handle empty lines
@@ -178,9 +180,9 @@ class OllamaProcessor:
                 lines = response.strip().split('\n')
                 title = None
                 tags = []
-                todos = []
+                tasks = []
                 content_lines = []
-                in_todos_section = False
+                in_tasks_section = False
                 prev_empty = False
 
                 for line in lines:
@@ -198,18 +200,25 @@ class OllamaProcessor:
                             tags = potential_tags
                             continue
                     
-                    # Handle todos section
-                    if line.strip().lower() == '## todos':
-                        in_todos_section = True
+                    # Handle tasks section
+                    if line.strip().lower() == '## tasks':
+                        in_tasks_section = True
                         continue
                         
-                    # Collect todos
+                    # Collect tasks
                     if line.strip().startswith('- [ ]'):
-                        todos.append(line[6:].strip())
+                        tasks.append(line[6:].strip())
                         continue
                         
                     # Handle regular content
-                    if not in_todos_section:
+                    if not in_tasks_section:
+                        # Skip empty "Important:" sections
+                        if line.strip().lower() == "important:":
+                            # Look ahead to see if the section is empty
+                            next_non_empty = next((l for l in lines[lines.index(line)+1:] if l.strip()), "").strip()
+                            if not next_non_empty or next_non_empty.startswith("##"):
+                                continue
+                            
                         # Manage empty lines
                         if not line.strip():
                             if not prev_empty:
@@ -228,7 +237,7 @@ class OllamaProcessor:
                     "title": title,
                     "content": '\n'.join(content_lines).strip(),
                     "tags": tags,
-                    "todos": todos
+                    "tasks": tasks
                 }
                 logging.info("Successfully created result from markdown")
                 return result
@@ -239,5 +248,5 @@ class OllamaProcessor:
                 "title": "Untitled Note",
                 "content": text,
                 "tags": [],
-                "todos": []
+                "tasks": []
             }
