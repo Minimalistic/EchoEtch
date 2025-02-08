@@ -200,6 +200,14 @@ class NoteManager:
         note_content.append("## Source")
         note_content.append(f"![[{audio_rel_path}|Original Audio]]")
         
+        # Add original transcription in collapsible section
+        note_content.append("")  # Add empty line for spacing
+        note_content.append("### Original Transcription")
+        note_content.append("> [!abstract]- Click to view original transcription")
+        note_content.append("> ```")
+        note_content.append("> " + processed_content.get('original_transcription', 'Original transcription not available').replace('\n', '\n> '))
+        note_content.append("> ```")
+        
         try:
             note_path.write_text('\n'.join(note_content), encoding='utf-8')
             logging.info(f"Note created at {note_path}")

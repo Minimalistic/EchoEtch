@@ -109,6 +109,9 @@ class OllamaProcessor:
                 if 'title' not in result:
                     raise ValueError("Response missing required 'title' field")
                 
+                # Add the original transcription to the result
+                result['original_transcription'] = text
+                
                 # Clean up the content
                 if 'content' in result:
                     # Remove multiple empty lines and clean up content
@@ -237,7 +240,8 @@ class OllamaProcessor:
                     "title": title,
                     "content": '\n'.join(content_lines).strip(),
                     "tags": tags,
-                    "tasks": tasks
+                    "tasks": tasks,
+                    "original_transcription": text
                 }
                 logging.info("Successfully created result from markdown")
                 return result
@@ -248,5 +252,6 @@ class OllamaProcessor:
                 "title": "Untitled Note",
                 "content": text,
                 "tags": [],
-                "tasks": []
+                "tasks": [],
+                "original_transcription": text
             }
