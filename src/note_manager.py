@@ -52,7 +52,14 @@ class NoteManager:
         
         # First, handle the audio file move
         daily_folder = self._get_daily_folder()
-        new_audio_path = daily_folder / audio_file.name
+        
+        # Create new audio filename with date, time and description
+        now = datetime.now()
+        date_time = now.strftime("%Y-%m-%d_%I-%M%p")
+        title = processed_content.get('title', 'Untitled Note')
+        sanitized_title = self._sanitize_filename(title[:30])
+        new_audio_name = f"{date_time}_{sanitized_title}{audio_file.suffix}"
+        new_audio_path = daily_folder / new_audio_name
         
         # Move audio file to daily folder if it's not already there
         if audio_file.parent != daily_folder:
@@ -88,17 +95,14 @@ class NoteManager:
                 logging.error(f"Failed to move audio file: {str(e)}")
                 raise Exception(f"Failed to move audio file: {str(e)}")
         
-        # Now create the note
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        
-        # Ensure we have a valid title
-        title = processed_content.get('title', 'Untitled Note')
-        sanitized_title = self._sanitize_filename(title[:30])
-        note_filename = f"{timestamp}_{sanitized_title}.md"
+        # Now create the note with matching naming convention
+        note_filename = f"{date_time}_{sanitized_title}.md"
         note_path = self.notes_folder / note_filename
         
-        # Create relative link to audio file in daily folder
-        audio_rel_path = os.path.relpath(new_audio_path, self.notes_folder)
+        # Create relative link to audio file
+        # Use relative path from note location to audio file
+        audio_rel_path = os.path.relpath(new_audio_path, note_path.parent)
+        audio_rel_path = audio_rel_path.replace('\\', '/')  # Convert Windows path to forward slashes for markdown
         
         # Build note content
         note_content = []
