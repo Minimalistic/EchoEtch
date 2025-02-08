@@ -50,40 +50,30 @@ class OllamaProcessor:
         Convert the following transcription into markdown, following these rules:
 
         1. Document Structure:
-           - Start with a single "# " (with a space) for the main title
+           - Start with a single "# " for the main title
            - Place all tags on the line immediately after the title, WITH # prefix (e.g., "#development #project-management")
            - Use ## for major sections
            - Use ### for subsections
            - Never repeat the title anywhere in the document
-           - Maximum one empty line between sections
            
         2. Text Formatting and Content Rules:
            - Keep sentences together on the same line - don't split them across lines
            - Use **bold** for emphasis within text
            - Use *italic* for lighter emphasis
            - Use `code` for technical terms
-           - For bullet points:
-             * Use "- " (hyphen + space) for bullet points
-             * Indent bullet points with 2 spaces
-             * Keep bullet point text on the same line
-           - For numbered lists:
-             * Keep the entire point on one line
-             * Don't split sentences across lines unnecessarily
-           - Never leave empty sections (like an empty "Important:" section)
-           - Remove any unnecessary line breaks within paragraphs
+           - For lists:
+             * Use either "- " or "* " for bullet points (no extra spaces needed)
+             * For nested lists, use a single tab or 2 spaces for each level
+             * For numbered lists, use "1. " format
+             * Keep each list item on a single line
+           - Never leave empty sections
+           - Remove unnecessary line breaks within paragraphs
 
         3. Task Handling:
-           - Create tasks only when there are clear action items:
-             * Explicit statements about tasks that need to be done
-             * Items specifically marked as "todo" or "to do"
-             * Items marked as "Important" that indicate required actions
-             * Clear follow-up actions or commitments
-             * Specific deadlines that require action
-           - Don't force regular statements or information into tasks
-           - Don't create tasks from general discussion points or information sharing
+           - Create tasks only when there are clear action items
+           - Don't force regular statements into tasks
            - Never write "Todo:" or "Important:" in the text - convert these directly to tasks
            - Never mention a task in the content if it's in the tasks section
-           - Don't create empty sections
 
         Format your response as a JSON object with these exact fields:
         {
@@ -114,41 +104,29 @@ class OllamaProcessor:
                 
                 # Clean up the content
                 if 'content' in result:
-                    # Remove multiple empty lines and clean up content
+                    # Split into lines and clean each one
                     lines = result['content'].split('\n')
                     cleaned_lines = []
                     prev_empty = False
-                    section_header = None
                     
                     for line in lines:
-                        line = line.rstrip()
-                        
-                        # Skip empty sections
-                        if line.startswith('##'):
-                            section_header = line
-                            continue
-                        elif section_header:
-                            if line.strip():
-                                cleaned_lines.append(section_header)
-                                cleaned_lines.append(line)
-                            section_header = None
-                            continue
-                            
-                        # Skip lines that mention tasks
-                        if any(task.lower() in line.lower() for task in result.get('tasks', [])):
-                            continue
-                            
-                        # Handle empty lines
+                        # Skip empty lines unless needed for spacing
                         if not line.strip():
                             if not prev_empty:
                                 cleaned_lines.append('')
                                 prev_empty = True
-                        else:
-                            # Ensure bullet points are properly indented
-                            if line.lstrip().startswith('- '):
-                                line = '  ' + line.lstrip()
-                            cleaned_lines.append(line)
-                            prev_empty = False
+                            continue
+                        
+                        # Remove all leading/trailing whitespace
+                        line = line.strip()
+                        
+                        # Add minimal indentation only for nested list items
+                        if re.match(r'^[\t ]+[-*]|^[\t ]+\d+\.', line):
+                            # If it's a nested list item, preserve one level of indentation
+                            line = '  ' + line.lstrip()
+                        
+                        cleaned_lines.append(line)
+                        prev_empty = False
                     
                     # Remove trailing empty lines
                     while cleaned_lines and not cleaned_lines[-1].strip():
