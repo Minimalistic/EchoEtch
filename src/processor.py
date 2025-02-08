@@ -45,6 +45,21 @@ class OllamaProcessor:
         """
         Process transcription with Ollama to create structured note content
         """
+        # Add repetition detection
+        def detect_repetition(text: str) -> str:
+            # Split into sentences and remove duplicates while preserving order
+            sentences = text.split('. ')
+            seen = set()
+            unique_sentences = []
+            for sentence in sentences:
+                if sentence.strip() and sentence not in seen:
+                    seen.add(sentence)
+                    unique_sentences.append(sentence)
+            return '. '.join(unique_sentences)
+
+        # Clean the input text before processing
+        text = detect_repetition(text)
+        
         prompt = '''
         You are an expert at converting spoken text into well-structured markdown notes.
         Convert the following transcription into markdown, following these rules:
@@ -68,6 +83,8 @@ class OllamaProcessor:
              * Keep each list item on a single line
            - Never leave empty sections
            - Remove unnecessary line breaks within paragraphs
+           - Remove any repetitive content or sentences
+           - Keep content concise and focused
 
         3. Task Handling:
            - Create tasks only when there are clear action items
