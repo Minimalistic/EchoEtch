@@ -176,7 +176,7 @@ class NoteManager:
                 filtered_lines.append(line)
                 prev_empty = False
         
-        # Remove any trailing empty lines before adding to note_content
+        # Remove any trailing empty lines before adding metadata
         while filtered_lines and not filtered_lines[-1].strip():
             filtered_lines.pop()
             
@@ -191,21 +191,38 @@ class NoteManager:
             
         note_content.extend(filtered_lines)
         
+        # Add conversion info section with nested callouts
+        if note_content and note_content[-1].strip():  # If last line isn't empty
+            note_content.append("")  # Add single empty line before conversion info
+        
+        note_content.append("> [!note]- Conversion Info")
+        
+        # Add quality metrics as nested callout
+        if processed_content.get('conversion_quality'):
+            quality = processed_content['conversion_quality']
+            note_content.append("> > [!info]- Quality Metrics")
+            note_content.append("> > - Completeness: {}/10".format(quality['completeness']))
+            note_content.append("> > - Structure: {}/10".format(quality['structure']))
+            note_content.append("> > - Clarity: {}/10".format(quality['clarity']))
+            note_content.append("> > - Task Handling: {}/10".format(quality['task_handling']))
+            note_content.append("> > - Overall Quality: {}/10".format(quality['overall_quality']))
+            note_content.append("> >")
+            note_content.append("> > {}".format(quality['explanation']))
+            note_content.append(">")  # Empty line between nested callouts
+        
+        # Add original transcription as nested callout
+        note_content.append("> > [!quote]- Original Transcription")
+        note_content.append("> > ```")
+        transcription_lines = processed_content.get('original_transcription', 'Original transcription not available').split('\n')
+        note_content.extend(["> > " + line for line in transcription_lines])
+        note_content.append("> > ```")
+        
         # Add tasks section if present
         if processed_content.get('tasks') and len(processed_content['tasks']) > 0:
             if note_content and note_content[-1].strip():  # If last line isn't empty
                 note_content.append("")  # Add single empty line before tasks
             note_content.append("## Tasks")
             note_content.append('\n'.join(['- [ ] ' + task for task in processed_content['tasks']]))
-        
-        # Add original transcription in callout
-        if note_content and note_content[-1].strip():  # If last line isn't empty
-            note_content.append("")  # Add single empty line before original transcription
-        
-        note_content.append("> [!quote]- Original Transcription")
-        note_content.append("> ```")
-        note_content.append("> " + processed_content.get('original_transcription', 'Original transcription not available').replace('\n', '\n> '))
-        note_content.append("> ```")
         
         try:
             note_path.write_text('\n'.join(note_content), encoding='utf-8')

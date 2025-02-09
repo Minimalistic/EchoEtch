@@ -257,18 +257,4 @@ class OllamaProcessor:
         best_response = self._compare_responses(responses)
         # Ensure original transcription is in the best response
         best_response['original_transcription'] = text
-        
-        # Add quality metrics to the note content
-        quality_section = f'''
-
-> [!info]- Conversion Quality Metrics
-> - Completeness: {best_response['conversion_quality']['completeness']}/10
-> - Structure: {best_response['conversion_quality']['structure']}/10
-> - Clarity: {best_response['conversion_quality']['clarity']}/10
-> - Task Handling: {best_response['conversion_quality']['task_handling']}/10
-> - Overall Quality: {best_response['conversion_quality']['overall_quality']}/10
-> 
-> {best_response['conversion_quality']['explanation']}'''
-        
-        best_response['content'] += quality_section
         return best_response
