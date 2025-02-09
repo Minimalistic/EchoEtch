@@ -31,12 +31,14 @@ class WhisperTranscriber:
             options = {
                 "fp16": False,  # Use full precision for better quality
                 "beam_size": 5,  # Increase beam size for better accuracy
-                "best_of": 5,   # Consider more candidates
-                "temperature": [0.0, 0.05, 0.1],  # Use very low temperatures for more consistent results
-                "task": "transcribe",  # Explicitly set to transcribe
-                "initial_prompt": self.default_prompt,  # Add the initial prompt
-                "condition_on_previous_text": True,  # Help maintain context
-                "compression_ratio_threshold": 2.4,  # Stricter threshold for repetition
+                "best_of": 3,    # Reduced from 5 to prevent over-analysis
+                "temperature": [0.0],  # Single temperature to prevent variation
+                "task": "transcribe",
+                "initial_prompt": self.default_prompt,
+                "condition_on_previous_text": False,  # Disabled to prevent context loop
+                "compression_ratio_threshold": 1.8,  # More aggressive threshold to prevent repetition
+                "no_speech_threshold": 0.6,  # More aggressive filtering of non-speech
+                "word_timestamps": True,    # Enable word timestamps for better segmentation
             }
             
             result = self.model.transcribe(str(audio_path), **options)
@@ -49,9 +51,47 @@ class WhisperTranscriber:
             text = re.sub(r'\s+([.,!?])', r'\1', text)
             # Ensure proper spacing after punctuation
             text = re.sub(r'([.,!?])([^\s])', r'\1 \2', text)
-            # Remove any remaining excessive whitespace
-            text = re.sub(r'\s+', ' ', text).strip()
+            # Remove any repeated phrases (3 or more words that repeat)
+            text = self._remove_repeated_phrases(text)
             
             return text
         except Exception as e:
             raise Exception(f"Transcription failed: {str(e)}")
+
+    def _remove_repeated_phrases(self, text):
+        """Remove repeated phrases of 3 or more words from the text."""
+        words = text.split()
+        if len(words) < 6:  # Too short to have meaningful repetition
+            return text
+            
+        # Build cleaned text by checking for repetitions
+        cleaned_words = []
+        i = 0
+        while i < len(words):
+            # Skip if we're too close to the end
+            if i > len(words) - 3:
+                cleaned_words.extend(words[i:])
+                break
+                
+            # Check for repeating phrases of different lengths (3 to 6 words)
+            repeated = False
+            for phrase_length in range(3, 7):
+                if i + phrase_length > len(words):
+                    continue
+                    
+                phrase = words[i:i + phrase_length]
+                # Look ahead for the same phrase
+                next_pos = i + phrase_length
+                if next_pos + phrase_length <= len(words):
+                    next_phrase = words[next_pos:next_pos + phrase_length]
+                    if phrase == next_phrase:
+                        repeated = True
+                        i += phrase_length  # Skip the repeated phrase
+                        break
+            
+            if not repeated:
+                cleaned_words.append(words[i])
+                i += 1
+        
+        # Remove any remaining excessive whitespace
+        return ' '.join(cleaned_words).strip()

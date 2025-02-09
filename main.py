@@ -5,12 +5,45 @@ from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import logging
+from logging.handlers import RotatingFileHandler
 
-# Set up logging with more detailed format
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-)
+# Set up logging configuration
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # Configure the rotating file handler
+    log_file = log_dir / "talknote.log"
+    max_bytes = 10 * 1024 * 1024  # 10MB per file
+    backup_count = 5  # Keep 5 backup files
+    
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding='utf-8'
+    )
+    
+    # Configure console handler
+    console_handler = logging.StreamHandler()
+    
+    # Create formatters and add it to the handlers
+    log_format = '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
+    formatter = logging.Formatter(log_format)
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # Get the root logger and set its level
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Remove any existing handlers and add our configured handlers
+    logger.handlers = []
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    logging.info("Logging system initialized with rotation enabled")
 
 from src.transcriber import WhisperTranscriber
 from src.processor import OllamaProcessor
@@ -18,6 +51,7 @@ from src.note_manager import NoteManager
 
 class AudioFileHandler(FileSystemEventHandler):
     def __init__(self):
+        setup_logging()
         logging.info("Initializing AudioFileHandler...")
         try:
             self.transcriber = WhisperTranscriber()
@@ -79,6 +113,9 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.exception("Full error trace:")
 
 def main():
+    # Initialize logging first
+    setup_logging()
+    
     # Load environment variables
     load_dotenv()
     

@@ -55,6 +55,12 @@ class OllamaProcessor:
             if not all(field in content for field in required_fields):
                 raise ValueError("Missing required fields in response")
                 
+            # Clean and validate the response
+            content['content'] = self._clean_whitespace(content['content'])
+            content['title'] = content['title'].strip()
+            content['tags'] = [tag.strip() for tag in content['tags']]
+            content['tasks'] = [task.strip() for task in content['tasks']]
+            
             return content
         except json.JSONDecodeError as e:
             logging.error(f"Failed to parse JSON response: {str(e)}")
@@ -88,7 +94,6 @@ class OllamaProcessor:
             {original_text}
 
             Converted Note:
-            # {converted_content['title']}
             {' '.join(converted_content['tags'])}
             
             {converted_content['content']}
@@ -163,6 +168,19 @@ class OllamaProcessor:
         logging.info(f"Selected best response with title: {best_response['title']}")
         return best_response
 
+    def _clean_whitespace(self, text: str) -> str:
+        """Clean up whitespace in text to ensure consistent formatting."""
+        # Replace multiple newlines with a single newline
+        text = re.sub(r'\n\s*\n', '\n', text)
+        # Replace multiple spaces with a single space
+        text = re.sub(r' +', ' ', text)
+        # Ensure proper spacing around markdown elements
+        text = re.sub(r'(\n[#]+)([^\s])', r'\1 \2', text)  # Space after headers
+        text = re.sub(r'(\n[-*])([^\s])', r'\1 \2', text)  # Space after list markers
+        # Remove whitespace at start and end
+        text = text.strip()
+        return text
+
     def process_transcription(self, text: str) -> Dict:
         """
         Process transcription with multiple Ollama passes to create structured note content
@@ -181,34 +199,35 @@ class OllamaProcessor:
 
         # Clean the input text before processing
         text = detect_repetition(text)
+        text = self._clean_whitespace(text)
         
         prompt = '''
-            You are an expert at converting transcribed text into Obsidian-compatible markdown notes. Convert the transcription below into a well-structured markdown note following these guidelines:
+            You are an expert at converting transcribed text into Obsidian-compatible markdown notes. Follow these instructions:
 
-            1. Title & Tags:
-            - Start with a main title using "# " (the JSON "title" field should not include the "#").
-            - On the next line, include tags where each tag starts with "#", if there is more than one word, separate each tag with a "-".
+            1. **Tags:**  
+            - The first line should list tags, each prefixed with "#". If a tag has multiple words, join them with "-".
 
-            2. Content Structure:
-            - Use "##" for major sections and "###" for subsections.
-            - Include all important details from the transcription without omitting or inferring extra content.
-            - Keep complete sentences on one line and remove unnecessary line breaks.
+            2. **Content:**  
+            - Use "##" for main sections and "###" for subsections that make sense. 
+            - Include all key details from the transcription without inferring extra content.  
+            - Keep full sentences on one line; remove unnecessary line breaks.
 
-            3. Text Formatting:
-            - Apply **bold**, *italic*, and `code` formatting as appropriate.
-            - Use "- " for bullet lists and "1. " for numbered lists, if a list is nested in another, tab it.
+            3. **Formatting:**  
+            - Use **bold** for emphasis (ensure pairs of ** are properly closed).
+            - Use *italic* for secondary emphasis (ensure pairs of * are properly closed).
+            - Use `code` for technical terms (ensure pairs of ` are properly closed).
+            - Use "- " for bullet lists and "1. " for numbered lists (tab nested lists).
+            - NEVER leave orphaned formatting characters.
 
-            4. Task Extraction (IMPORTANT):
-            - **Only** extract tasks if the transcription explicitly includes the exact phrases "Make Todo:" or "Todo:".
-            - Do not infer tasks from content that merely resembles a task.
-            - When a task marker is present, remove the marker from the final text.
-            - Format each task as "- [ ] Task description" and list them under a "## Tasks" section.
-            - If no explicit task markers are present, do not include any tasks (the tasks array must be empty).
+            4. **Tasks:**  
+            - Extract tasks from any phrases containing "Make Todo:" or "Todo:".
+            - Remove these markers and replace them with "- [ ] task description" under a "## Tasks" section.
+            - If no explicit task markers exist, do NOT make tags or tasks section!
 
-            Format your response as a JSON object exactly in this format:
+            Output your response as a JSON object in the following format:
             {
-                "title": "Title text (without leading '# ')",
-                "content": "Full markdown content with proper newlines escaped as \\n",
+                "title": "Title text (without '# ')",
+                "content": "Full markdown content with newlines escaped as \\n",
                 "tags": ["#tag1", "#tag2"],
                 "tasks": ["task description 1", "task description 2"]
             }
@@ -217,7 +236,7 @@ class OllamaProcessor:
 ''' + text
 
         # Make multiple attempts with different temperatures
-        temperatures = [0.2, 0.3, 0.4, 0.5, 0.6]  # More temperature variations
+        temperatures = [0.3, 0.4, 0.5, 0.6, 0.7]  # More temperature variations
         responses = []
         
         for temp in temperatures:
