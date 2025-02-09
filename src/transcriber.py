@@ -32,7 +32,7 @@ class WhisperTranscriber:
                 "fp16": False,  # Use full precision for better quality
                 "beam_size": 5,  # Increase beam size for better accuracy
                 "best_of": 5,   # Consider more candidates
-                "temperature": [0.0, 0.2, 0.4],  # Use lower temperatures for more consistent results
+                "temperature": [0.0, 0.05, 0.1],  # Use very low temperatures for more consistent results
                 "task": "transcribe",  # Explicitly set to transcribe
                 "initial_prompt": self.default_prompt,  # Add the initial prompt
                 "condition_on_previous_text": True,  # Help maintain context

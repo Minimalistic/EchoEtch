@@ -11,15 +11,18 @@ class OllamaProcessor:
         self.model = os.getenv('OLLAMA_MODEL')
         if not self.model:
             raise ValueError("OLLAMA_MODEL must be set in environment variables")
-        # Higher temperature for more creative formatting
-        self.temperature = float(os.getenv('OLLAMA_TEMPERATURE', '0.7'))
+        # Lower temperature for more consistent formatting
+        self.temperature = float(os.getenv('OLLAMA_TEMPERATURE', '0.3'))
         # Context length in tokens (default 12k)
         self.context_length = int(os.getenv('OLLAMA_CONTEXT_LENGTH', '12000'))
 
-    def _send_to_ollama(self, prompt: str) -> str:
+    def _send_to_ollama(self, prompt: str, temperature: float = None) -> str:
         try:
-            logging.info("Starting initial Ollama processing...")
+            logging.info("Starting Ollama processing...")
             logging.debug(f"Input text length: {len(prompt)} characters")
+            
+            # Use provided temperature or fall back to default
+            temp = temperature if temperature is not None else self.temperature
             
             response = requests.post(
                 self.api_url,
@@ -27,7 +30,7 @@ class OllamaProcessor:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "temperature": self.temperature,
+                    "temperature": temp,
                     "context_length": self.context_length
                 }
             )
@@ -41,9 +44,128 @@ class OllamaProcessor:
             logging.error(f"Ollama processing failed: {str(e)}")
             raise
 
+    def _validate_and_parse_response(self, response: str) -> Dict:
+        """Validate and parse the LLM response into a dictionary"""
+        try:
+            # First try to parse as JSON directly
+            content = json.loads(response)
+            
+            # Validate required fields
+            required_fields = ["title", "content", "tags", "tasks"]
+            if not all(field in content for field in required_fields):
+                raise ValueError("Missing required fields in response")
+                
+            return content
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse JSON response: {str(e)}")
+            raise
+        except Exception as e:
+            logging.error(f"Invalid response format: {str(e)}")
+            raise
+
+    def _evaluate_conversion(self, original_text: str, converted_content: Dict) -> Dict:
+        """Have the LLM evaluate the quality of its conversion"""
+        evaluation_prompt = f'''
+            You are a quality assurance expert. Evaluate how well the following markdown note captures and structures the original transcription.
+            Rate the conversion on these aspects (1-10 scale):
+            1. Completeness: Are all key points from the original included?
+            2. Structure: Is the content well-organized with appropriate sections and formatting?
+            3. Clarity: Is the converted text clear and readable?
+            4. Task Handling: Are tasks (if any) properly extracted and formatted?
+            5. Overall Quality: Overall rating considering all factors
+
+            Provide your response as a JSON object with numerical scores and a brief explanation:
+            {{
+                "completeness": 8,
+                "structure": 9,
+                "clarity": 8,
+                "task_handling": 9,
+                "overall_quality": 8.5,
+                "explanation": "Brief explanation of the ratings"
+            }}
+
+            Original Transcription:
+            {original_text}
+
+            Converted Note:
+            # {converted_content['title']}
+            {' '.join(converted_content['tags'])}
+            
+            {converted_content['content']}
+            
+            Tasks:
+            {chr(10).join(['- [ ] ' + task for task in converted_content['tasks']])}
+        '''
+
+        try:
+            response = self._send_to_ollama(evaluation_prompt, temperature=0.2)  # Lower temperature for more consistent evaluation
+            evaluation = json.loads(response)
+            logging.info(f"Conversion quality evaluation: {evaluation['overall_quality']}/10")
+            return evaluation
+        except Exception as e:
+            logging.warning(f"Failed to evaluate conversion: {str(e)}")
+            return {
+                "completeness": 0,
+                "structure": 0,
+                "clarity": 0,
+                "task_handling": 0,
+                "overall_quality": 0,
+                "explanation": "Evaluation failed"
+            }
+
+    def _compare_responses(self, responses: list[Dict]) -> Dict:
+        """Compare multiple responses and select the best one"""
+        if not responses:
+            raise ValueError("No valid responses to compare")
+        
+        def score_response(response: Dict) -> float:
+            score = 0.0
+            
+            # Score based on title quality (non-empty, reasonable length)
+            if response["title"] and 3 <= len(response["title"].split()) <= 10:
+                score += 1.0
+                
+            # Score based on content structure
+            content = response["content"]
+            if "##" in content:  # Has sections
+                score += 1.0
+            if "###" in content:  # Has subsections
+                score += 0.5
+            if "- " in content or "1. " in content:  # Has lists
+                score += 0.5
+                
+            # Score based on markdown formatting usage
+            if any(marker in content for marker in ["**", "*", "`"]):
+                score += 0.5
+                
+            # Score based on tags (prefer 2-5 tags)
+            num_tags = len(response["tags"])
+            if 2 <= num_tags <= 5:
+                score += 1.0
+            
+            # Penalize extremely long or short content
+            content_length = len(content)
+            if 100 <= content_length <= 5000:
+                score += 1.0
+            elif content_length > 5000:
+                score -= 0.5
+            
+            # Add the LLM's self-evaluation score
+            if 'conversion_quality' in response:
+                score += response['conversion_quality']['overall_quality'] / 2  # Scale down to match other scores
+                
+            return score
+        
+        # Score each response and return the best one
+        scored_responses = [(score_response(r), r) for r in responses]
+        best_response = max(scored_responses, key=lambda x: x[0])[1]
+        
+        logging.info(f"Selected best response with title: {best_response['title']}")
+        return best_response
+
     def process_transcription(self, text: str) -> Dict:
         """
-        Process transcription with Ollama to create structured note content
+        Process transcription with multiple Ollama passes to create structured note content
         """
         # Add repetition detection
         def detect_repetition(text: str) -> str:
@@ -61,192 +183,92 @@ class OllamaProcessor:
         text = detect_repetition(text)
         
         prompt = '''
-        You are an expert at converting spoken text into well-structured markdown notes.
-        Convert the following transcription into markdown, following these rules:
+            You are an expert at converting transcribed text into Obsidian-compatible markdown notes. Convert the transcription below into a well-structured markdown note following these guidelines:
 
-        1. Document Structure:
-           - Start with a single "# " for the main title
-           - Place all tags on the line immediately after the title, WITH # prefix (e.g., "#development #project-management")
-           - Use ## for major sections
-           - Use ### for subsections
-           - Never repeat the title anywhere in the document
-           
-        2. Text Formatting and Content Rules:
-           - Keep sentences together on the same line - don't split them across lines
-           - Use **bold** for emphasis within text
-           - Use *italic* for lighter emphasis
-           - Use `code` for technical terms
-           - For lists:
-             * Use either "- " or "* " for bullet points (no extra spaces needed)
-             * For nested lists, use a single tab or 2 spaces for each level
-             * For numbered lists, use "1. " format
-             * Keep each list item on a single line
-           - Never leave empty sections
-           - Remove unnecessary line breaks within paragraphs
-           - Remove any repetitive content or sentences
-           - Keep content concise and focused
+            1. Title & Tags:
+            - Start with a main title using "# " (the JSON "title" field should not include the "#").
+            - On the next line, include tags where each tag starts with "#", if there is more than one word, separate each tag with a "-".
 
-        3. Task Handling:
-           - Create tasks only when there are clear action items
-           - Don't force regular statements into tasks
-           - Never write "Todo:" or "Important:" in the text - convert these directly to tasks
-           - Never mention a task in the content if it's in the tasks section
+            2. Content Structure:
+            - Use "##" for major sections and "###" for subsections.
+            - Include all important details from the transcription without omitting or inferring extra content.
+            - Keep complete sentences on one line and remove unnecessary line breaks.
 
-        Format your response as a JSON object with these exact fields:
-        {
-            "title": "The main title without any # prefix",
-            "content": "The full markdown content with proper newlines escaped as \\n",
-            "tags": ["tag1", "tag2"],
-            "tasks": ["task1", "task2"]
-        }
+            3. Text Formatting:
+            - Apply **bold**, *italic*, and `code` formatting as appropriate.
+            - Use "- " for bullet lists and "1. " for numbered lists, if a list is nested in another, tab it.
+
+            4. Task Extraction (IMPORTANT):
+            - **Only** extract tasks if the transcription explicitly includes the exact phrases "Make Todo:" or "Todo:".
+            - Do not infer tasks from content that merely resembles a task.
+            - When a task marker is present, remove the marker from the final text.
+            - Format each task as "- [ ] Task description" and list them under a "## Tasks" section.
+            - If no explicit task markers are present, do not include any tasks (the tasks array must be empty).
+
+            Format your response as a JSON object exactly in this format:
+            {
+                "title": "Title text (without leading '# ')",
+                "content": "Full markdown content with proper newlines escaped as \\n",
+                "tags": ["#tag1", "#tag2"],
+                "tasks": ["task description 1", "task description 2"]
+            }
 
         Here's the transcription to process:
 ''' + text
 
-        try:
-            response = self._send_to_ollama(prompt)
-            logging.debug(f"Processing response: {response[:500]}...")
-            
-            # First try to parse as JSON directly
+        # Make multiple attempts with different temperatures
+        temperatures = [0.2, 0.3, 0.4, 0.5, 0.6]  # More temperature variations
+        responses = []
+        
+        for temp in temperatures:
             try:
-                result = json.loads(response)
-                logging.info("Successfully parsed JSON response")
-                if not isinstance(result, dict):
-                    raise ValueError("Response is not a dictionary")
-                if 'title' not in result:
-                    raise ValueError("Response missing required 'title' field")
-                
-                # Add the original transcription to the result
-                result['original_transcription'] = text
-                
-                # Clean up the content
-                if 'content' in result:
-                    # Split into lines and clean each one
-                    lines = result['content'].split('\n')
-                    cleaned_lines = []
-                    prev_empty = False
-                    
-                    for line in lines:
-                        # Skip empty lines unless needed for spacing
-                        if not line.strip():
-                            if not prev_empty:
-                                cleaned_lines.append('')
-                                prev_empty = True
-                            continue
-                        
-                        # Remove all leading/trailing whitespace
-                        line = line.strip()
-                        
-                        # Add minimal indentation only for nested list items
-                        if re.match(r'^[\t ]+[-*]|^[\t ]+\d+\.', line):
-                            # If it's a nested list item, preserve one level of indentation
-                            line = '  ' + line.lstrip()
-                        
-                        cleaned_lines.append(line)
-                        prev_empty = False
-                    
-                    # Remove trailing empty lines
-                    while cleaned_lines and not cleaned_lines[-1].strip():
-                        cleaned_lines.pop()
-                        
-                    result['content'] = '\n'.join(cleaned_lines)
-                
-                # Ensure tags have # prefix
-                if 'tags' in result:
-                    result['tags'] = ['#' + tag.lstrip('#') for tag in result['tags']]
-                
-                return result
-            except json.JSONDecodeError as e:
-                logging.info(f"Direct JSON parse failed: {str(e)}")
-                # If direct JSON parsing fails, try to extract JSON from the response
-                # Look for content between triple backticks if present
-                json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
-                if json_match:
-                    try:
-                        result = json.loads(json_match.group(1))
-                        logging.info("Successfully parsed JSON from code block")
-                        if not isinstance(result, dict):
-                            raise ValueError("Response is not a dictionary")
-                        if 'title' not in result:
-                            raise ValueError("Response missing required 'title' field")
-                        return result
-                    except json.JSONDecodeError as e:
-                        logging.info(f"JSON code block parse failed: {str(e)}")
-                
-                # If we still don't have valid JSON, create it from the markdown
-                logging.info("Falling back to markdown parsing")
-                lines = response.strip().split('\n')
-                title = None
-                tags = []
-                tasks = []
-                content_lines = []
-                in_tasks_section = False
-                prev_empty = False
-
-                for line in lines:
-                    line = line.rstrip()
-                    
-                    # Handle title
-                    if not title and line.strip().startswith('# '):
-                        title = line[2:].strip()
-                        continue
-                        
-                    # Handle tags
-                    if not tags and not line.startswith('#') and ' ' in line:
-                        potential_tags = line.strip().split()
-                        if all(tag.isalnum() or '-' in tag for tag in potential_tags):
-                            tags = potential_tags
-                            continue
-                    
-                    # Handle tasks section
-                    if line.strip().lower() == '## tasks':
-                        in_tasks_section = True
-                        continue
-                        
-                    # Collect tasks
-                    if line.strip().startswith('- [ ]'):
-                        tasks.append(line[6:].strip())
-                        continue
-                        
-                    # Handle regular content
-                    if not in_tasks_section:
-                        # Skip empty "Important:" sections
-                        if line.strip().lower() == "important:":
-                            # Look ahead to see if the section is empty
-                            next_non_empty = next((l for l in lines[lines.index(line)+1:] if l.strip()), "").strip()
-                            if not next_non_empty or next_non_empty.startswith("##"):
-                                continue
-                            
-                        # Manage empty lines
-                        if not line.strip():
-                            if not prev_empty:
-                                content_lines.append('')
-                                prev_empty = True
-                        else:
-                            content_lines.append(line)
-                            prev_empty = False
-
-                if not title:
-                    logging.warning("No title found in markdown, using default")
-                    title = "Untitled Note"
-
-                # Create proper JSON response
-                result = {
-                    "title": title,
-                    "content": '\n'.join(content_lines).strip(),
-                    "tags": tags,
-                    "tasks": tasks,
-                    "original_transcription": text
-                }
-                logging.info("Successfully created result from markdown")
-                return result
-
-        except Exception as e:
-            logging.error(f"Error during Ollama processing: {str(e)}")
+                response = self._send_to_ollama(prompt, temperature=temp)
+                parsed_response = self._validate_and_parse_response(response)
+                # Add original transcription to each response
+                parsed_response['original_transcription'] = text
+                # Evaluate the conversion quality
+                evaluation = self._evaluate_conversion(text, parsed_response)
+                parsed_response['conversion_quality'] = evaluation
+                responses.append(parsed_response)
+                logging.info(f"Successfully generated response with temperature {temp}")
+            except Exception as e:
+                logging.warning(f"Failed attempt with temperature {temp}: {str(e)}")
+                continue
+        
+        if not responses:
+            # If all attempts fail, return a basic response with the original text
             return {
                 "title": "Untitled Note",
                 "content": text,
                 "tags": [],
                 "tasks": [],
-                "original_transcription": text
+                "original_transcription": text,
+                "conversion_quality": {
+                    "completeness": 0,
+                    "structure": 0,
+                    "clarity": 0,
+                    "task_handling": 0,
+                    "overall_quality": 0,
+                    "explanation": "Conversion failed"
+                }
             }
+        
+        # Compare and select the best response
+        best_response = self._compare_responses(responses)
+        # Ensure original transcription is in the best response
+        best_response['original_transcription'] = text
+        
+        # Add quality metrics to the note content
+        quality_section = f'''
+
+> [!info]- Conversion Quality Metrics
+> - Completeness: {best_response['conversion_quality']['completeness']}/10
+> - Structure: {best_response['conversion_quality']['structure']}/10
+> - Clarity: {best_response['conversion_quality']['clarity']}/10
+> - Task Handling: {best_response['conversion_quality']['task_handling']}/10
+> - Overall Quality: {best_response['conversion_quality']['overall_quality']}/10
+> 
+> {best_response['conversion_quality']['explanation']}'''
+        
+        best_response['content'] += quality_section
+        return best_response
