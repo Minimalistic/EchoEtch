@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Dict
 import re
 import logging
-import subprocess
-import platform
 import shutil
 
 class NoteManager:
@@ -33,10 +31,7 @@ class NoteManager:
         """
         today = datetime.now().strftime("%Y-%m-%d")
         daily_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes') / today / "audio"
-        logging.debug(f"Daily folder path: {daily_folder}")
-        logging.debug(f"Daily folder exists: {daily_folder.exists()}")
         daily_folder.mkdir(parents=True, exist_ok=True)
-        logging.debug(f"Daily folder created/verified")
         return daily_folder
 
     def create_note(self, processed_content: Dict, audio_file: Path):
@@ -47,9 +42,6 @@ class NoteManager:
             processed_content (Dict): Processed content from Ollama
             audio_file (Path): Path to the original audio file
         """
-        import subprocess
-        import platform
-        
         # First, handle the audio file move
         daily_folder = self._get_daily_folder()
         
@@ -77,9 +69,6 @@ class NoteManager:
             logging.info(f"Moving audio file from {audio_file} to {new_audio_path}")
             
             try:
-                # Use shutil for file operations
-                import shutil
-                
                 # Copy file first
                 shutil.copy2(str(audio_file), str(new_audio_path))
                 
@@ -95,13 +84,11 @@ class NoteManager:
                 logging.error(f"Failed to move audio file: {str(e)}")
                 raise Exception(f"Failed to move audio file: {str(e)}")
         
-        # Now create the note with matching naming convention
+        # Create the note with matching naming convention
         note_filename = f"{date_time}_{sanitized_title}.md"
-        # Place the note in the same day folder as the audio, but one level up
         note_path = daily_folder.parent / note_filename
         
         # Create relative link to audio file
-        # Use relative path from vault root to audio file for Obsidian compatibility
         audio_rel_path = os.path.relpath(new_audio_path, self.vault_path)
         audio_rel_path = audio_rel_path.replace('\\', '/')  # Convert Windows path to forward slashes for markdown
         
@@ -110,119 +97,14 @@ class NoteManager:
         
         # Add title and tags at the top
         note_content.append(f"# {title}")
-        if processed_content.get('tags') and len(processed_content['tags']) > 0:
-            # Tags should already have # prefix from processor
+        if processed_content.get('tags'):
             note_content.append(' '.join(processed_content['tags']))
         note_content.append("")  # Add blank line after tags
         
-        # Add source audio after title and tags
+        # Add source audio link
         note_content.append(f"Source Audio: ![[{audio_rel_path}]]")
-        note_content.append("")  # Add blank line after source
-        
-        # Add main content
-        if isinstance(processed_content.get('content'), list):
-            content = '\n'.join(processed_content['content'])
-        else:
-            content = str(processed_content.get('content', ''))
-            
-        # Clean up the content
-        content_lines = content.split('\n')
-        filtered_lines = []
-        prev_empty = False
-        skip_next_line = False
-        section_header = None
-        
-        for i, line in enumerate(content_lines):
-            line = line.rstrip()  # Remove trailing whitespace
-            
-            # Skip empty sections
-            if line.startswith('##'):
-                section_header = line
-                continue
-            elif section_header:
-                if line.strip():
-                    filtered_lines.append(section_header)
-                    filtered_lines.append(line)
-                section_header = None
-                continue
-            
-            # Skip the title line and any duplicate tag lines
-            if line.startswith('# ') and line[2:].strip() == title:
-                continue
-            if any(tag.lstrip('#') in line for tag in processed_content.get('tags', [])):
-                continue
-            if line.strip() == '## Tags':
-                skip_next_line = True
-                continue
-            if skip_next_line:
-                skip_next_line = False
-                continue
-                
-            # Skip lines that mention tasks
-            if processed_content.get('tasks'):
-                if any(task.lower() in line.lower() for task in processed_content['tasks']):
-                    continue
-            
-            # Handle bullet points
-            if line.lstrip().startswith('- '):
-                line = '  ' + line.lstrip()  # Ensure consistent indentation
-                
-            # Handle empty lines - maximum one empty line between content
-            if not line.strip():
-                if not prev_empty:
-                    filtered_lines.append('')
-                    prev_empty = True
-            else:
-                filtered_lines.append(line)
-                prev_empty = False
-        
-        # Remove any trailing empty lines before adding metadata
-        while filtered_lines and not filtered_lines[-1].strip():
-            filtered_lines.pop()
-            
-        # Remove any empty sections
-        i = 0
-        while i < len(filtered_lines):
-            if filtered_lines[i].startswith('##'):
-                if i + 1 >= len(filtered_lines) or not filtered_lines[i + 1].strip():
-                    filtered_lines.pop(i)
-                    continue
-            i += 1
-            
-        note_content.extend(filtered_lines)
-        
-        # Add conversion info section with nested callouts
-        if note_content and note_content[-1].strip():  # If last line isn't empty
-            note_content.append("")  # Add single empty line before conversion info
-        
-        note_content.append("> [!note]- Conversion Info")
-        
-        # Add quality metrics as nested callout
-        if processed_content.get('conversion_quality'):
-            quality = processed_content['conversion_quality']
-            note_content.append("> > [!info]- Quality Metrics")
-            note_content.append("> > - Completeness: {}/10".format(quality['completeness']))
-            note_content.append("> > - Structure: {}/10".format(quality['structure']))
-            note_content.append("> > - Clarity: {}/10".format(quality['clarity']))
-            note_content.append("> > - Task Handling: {}/10".format(quality['task_handling']))
-            note_content.append("> > - Overall Quality: {}/10".format(quality['overall_quality']))
-            note_content.append("> >")
-            note_content.append("> > {}".format(quality['explanation']))
-            note_content.append(">")  # Empty line between nested callouts
-        
-        # Add original transcription as nested callout
-        note_content.append("> > [!quote]- Original Transcription")
-        note_content.append("> > ```")
-        transcription_lines = processed_content.get('original_transcription', 'Original transcription not available').split('\n')
-        note_content.extend(["> > " + line for line in transcription_lines])
-        note_content.append("> > ```")
-        
-        # Add tasks section if present
-        if processed_content.get('tasks') and len(processed_content['tasks']) > 0:
-            if note_content and note_content[-1].strip():  # If last line isn't empty
-                note_content.append("")  # Add single empty line before tasks
-            note_content.append("## Tasks")
-            note_content.append('\n'.join(['- [ ] ' + task for task in processed_content['tasks']]))
+        # Add main content (the transcription)
+        note_content.append(processed_content.get('content', ''))
         
         try:
             note_path.write_text('\n'.join(note_content), encoding='utf-8')

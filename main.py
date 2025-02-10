@@ -104,7 +104,7 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.info("Transcription completed successfully")
             
             logging.info("Processing with Ollama...")
-            processed_content = self.processor.process_transcription(transcription)
+            processed_content = self.processor.process_transcription(transcription, file_path.name)
             logging.info("Ollama processing completed")
             
             logging.info("Creating note...")
