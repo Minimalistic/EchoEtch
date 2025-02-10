@@ -6,6 +6,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import logging
 from logging.handlers import RotatingFileHandler
+import requests
+import subprocess
+import platform
 
 # Set up logging configuration
 def setup_logging():
@@ -112,10 +115,54 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.error(f"Error processing {file_path}: {str(e)}")
             logging.exception("Full error trace:")
 
+def ensure_ollama_running():
+    """Check if Ollama is running and start it if not."""
+    try:
+        # Try to connect to Ollama API
+        response = requests.get('http://localhost:11434/api/version')
+        if response.status_code == 200:
+            logging.info("Ollama is already running")
+            return True
+    except requests.exceptions.ConnectionError:
+        logging.info("Ollama is not running. Attempting to start...")
+        try:
+            if platform.system() == 'Windows':
+                # Start Ollama in a new process window
+                subprocess.Popen('ollama serve', 
+                               creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                subprocess.Popen(['ollama', 'serve'])
+            
+            # Wait for Ollama to start (up to 30 seconds)
+            max_attempts = 30
+            for i in range(max_attempts):
+                try:
+                    response = requests.get('http://localhost:11434/api/version')
+                    if response.status_code == 200:
+                        logging.info("Ollama started successfully")
+                        return True
+                except requests.exceptions.ConnectionError:
+                    if i < max_attempts - 1:
+                        time.sleep(1)
+                        continue
+                    logging.error("Failed to start Ollama after 30 seconds")
+                    return False
+        except FileNotFoundError:
+            logging.error("Ollama executable not found. Please ensure Ollama is installed")
+            return False
+        except Exception as e:
+            logging.error(f"Error starting Ollama: {str(e)}")
+            return False
+
 def main():
     # Initialize logging first
     setup_logging()
     
+    # Ensure Ollama is running before proceeding
+    if not ensure_ollama_running():
+        logging.error("Could not start Ollama. Exiting...")
+        return
+
     # Load environment variables
     load_dotenv()
     
