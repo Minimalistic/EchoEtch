@@ -9,6 +9,9 @@ from logging.handlers import RotatingFileHandler
 import requests
 import subprocess
 import platform
+import signal
+import sys
+import gc
 
 # Set up logging configuration
 def setup_logging():
@@ -56,6 +59,14 @@ class AudioFileHandler(FileSystemEventHandler):
     def __init__(self):
         setup_logging()
         logging.info("Initializing AudioFileHandler...")
+        self.initialize_components()
+        self.processed_files = set()  # Track processed files
+        self.last_health_check = time.time()
+        self.health_check_interval = 3600  # Run health check every hour
+        self.max_processed_files = 1000  # Maximum number of processed files to track
+
+    def initialize_components(self):
+        """Initialize or reinitialize components with error handling"""
         try:
             self.transcriber = WhisperTranscriber()
             logging.info("Whisper model loaded successfully")
@@ -63,57 +74,109 @@ class AudioFileHandler(FileSystemEventHandler):
             logging.info("Ollama processor initialized")
             self.note_manager = NoteManager()
             logging.info("Note manager initialized")
-            self.processed_files = set()  # Track processed files
         except Exception as e:
             logging.error(f"Error during initialization: {str(e)}")
             raise
+
+    def check_health(self):
+        """Perform periodic health checks and cleanup"""
+        current_time = time.time()
+        if current_time - self.last_health_check >= self.health_check_interval:
+            logging.info("Performing periodic health check...")
+            try:
+                # Clean up processed files set to prevent memory growth
+                if len(self.processed_files) > self.max_processed_files:
+                    logging.info("Cleaning up processed files tracking set")
+                    self.processed_files.clear()
+
+                # Check Ollama connection
+                if not self.check_ollama_health():
+                    logging.warning("Ollama connection issue detected, reinitializing processor")
+                    self.processor = OllamaProcessor()
+
+                # Force garbage collection
+                gc.collect()
+                
+                self.last_health_check = current_time
+                logging.info("Health check completed successfully")
+            except Exception as e:
+                logging.error(f"Error during health check: {str(e)}")
+
+    def check_ollama_health(self):
+        """Check if Ollama is responsive"""
+        try:
+            response = requests.get(self.processor.api_url.replace('/api/generate', '/api/version'))
+            return response.status_code == 200
+        except:
+            return False
 
     def on_created(self, event):
         if event.is_directory:
             return
         
-        file_path = Path(event.src_path)
-        if file_path.suffix.lower() in ['.mp3', '.wav', '.m4a']:
-            # Check if we've already processed this file
-            if file_path.name in self.processed_files:
-                logging.info(f"File already processed, skipping: {file_path}")
-                return
+        try:
+            self.check_health()  # Run periodic health check
+            
+            file_path = Path(event.src_path)
+            if file_path.suffix.lower() in ['.mp3', '.wav', '.m4a']:
+                # Check if we've already processed this file
+                if file_path.name in self.processed_files:
+                    logging.info(f"File already processed, skipping: {file_path}")
+                    return
+                    
+                logging.info(f"New audio file detected: {file_path}")
+                self._process_audio_file(file_path)
                 
-            logging.info(f"New audio file detected: {file_path}")
-            self._process_audio_file(file_path)
-            
-            # Add to processed files set
-            self.processed_files.add(file_path.name)
-            
-            # Cleanup old entries (optional, prevents unlimited growth)
-            if len(self.processed_files) > 1000:
-                self.processed_files.clear()
+                # Add to processed files set
+                self.processed_files.add(file_path.name)
+                
+        except Exception as e:
+            logging.error(f"Error in on_created handler: {str(e)}")
 
     def _process_audio_file(self, file_path):
-        try:
-            # Wait a moment to ensure file is fully written
-            time.sleep(1)
-            
-            # Check if file exists and is accessible
-            if not file_path.exists():
-                logging.error(f"File does not exist: {file_path}")
-                return
+        max_retries = 3
+        retry_delay = 5  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Wait a moment to ensure file is fully written
+                time.sleep(1)
                 
-            logging.info("Starting transcription...")
-            transcription = self.transcriber.transcribe(file_path)
-            logging.info("Transcription completed successfully")
-            
-            logging.info("Processing with Ollama...")
-            processed_content = self.processor.process_transcription(transcription, file_path.name)
-            logging.info("Ollama processing completed")
-            
-            logging.info("Creating note...")
-            self.note_manager.create_note(processed_content, file_path)
-            logging.info(f"Note created successfully for: {file_path}")
-            
-        except Exception as e:
-            logging.error(f"Error processing {file_path}: {str(e)}")
-            logging.exception("Full error trace:")
+                # Check if file exists and is accessible
+                if not file_path.exists():
+                    if attempt == 0:  # Only log on first attempt
+                        logging.debug(f"File not found (may have been moved): {file_path}")
+                    return
+                
+                # Check file size stability
+                initial_size = file_path.stat().st_size
+                time.sleep(1)
+                if initial_size != file_path.stat().st_size:
+                    logging.info(f"File still being written, retrying... (attempt {attempt + 1})")
+                    continue
+                
+                logging.info("Starting transcription...")
+                transcription = self.transcriber.transcribe(file_path)
+                logging.info("Transcription completed successfully")
+                
+                logging.info("Processing with Ollama...")
+                processed_content = self.processor.process_transcription(transcription, file_path.name)
+                logging.info("Ollama processing completed")
+                
+                logging.info("Creating note...")
+                self.note_manager.create_note(processed_content, file_path)
+                logging.info(f"Note created successfully for: {file_path}")
+                return  # Exit after successful processing
+                
+            except FileNotFoundError:
+                if attempt == 0:  # Only log on first attempt
+                    logging.debug(f"File not found (may have been moved): {file_path}")
+                return
+            except Exception as e:
+                logging.error(f"Error processing {file_path}: {str(e)}")
+                logging.exception("Full error trace:")
+                if attempt < max_retries - 1:  # Don't sleep on last attempt
+                    time.sleep(retry_delay)  # Wait before retrying
 
 def ensure_ollama_running():
     """Check if Ollama is running and start it if not."""
@@ -155,61 +218,54 @@ def ensure_ollama_running():
             return False
 
 def main():
-    # Initialize logging first
-    setup_logging()
-    
-    # Ensure Ollama is running before proceeding
-    if not ensure_ollama_running():
-        logging.error("Could not start Ollama. Exiting...")
-        return
-
-    # Load environment variables
     load_dotenv()
     
-    audio_folder = os.getenv('AUDIO_INPUT_FOLDER')
-    if not audio_folder:
-        logging.error("AUDIO_INPUT_FOLDER not set in .env file")
-        return
-
-    # Normalize path and resolve any symlinks that might be present in iCloud Drive
-    audio_folder_path = Path(audio_folder).resolve()
-    logging.info(f"Resolved audio folder path: {audio_folder_path}")
-
-    if not audio_folder_path.exists():
-        logging.error(f"Audio folder does not exist: {audio_folder_path}")
-        return
-
-    if not audio_folder_path.is_dir():
-        logging.error(f"Path exists but is not a directory: {audio_folder_path}")
-        return
-
-    # List current contents of the directory
-    try:
-        files = list(audio_folder_path.glob('*'))
-        logging.info(f"Current files in directory: {[f.name for f in files]}")
-    except Exception as e:
-        logging.error(f"Error listing directory contents: {str(e)}")
-        return
-
-    logging.info(f"Starting file monitor for: {audio_folder_path}")
-    event_handler = AudioFileHandler()
-    observer = Observer()
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logging.info(f"Received signal {signum}. Initiating graceful shutdown...")
+        observer.stop()
+        observer.join()
+        logging.info("Shutdown complete")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        observer.schedule(event_handler, str(audio_folder_path), recursive=False)
-        observer.start()
-        logging.info("File monitor started successfully")
+        # Ensure Ollama is running
+        ensure_ollama_running()
         
+        # Initialize the event handler
+        event_handler = AudioFileHandler()
+        
+        # Set up the observer with error handling
+        observer = Observer()
+        watch_path = os.getenv('WATCH_FOLDER')
+        if not watch_path:
+            raise ValueError("WATCH_FOLDER environment variable not set")
+        
+        observer.schedule(event_handler, watch_path, recursive=False)
+        observer.start()
+        logging.info(f"Started watching folder: {watch_path}")
+        
+        # Main loop with health monitoring
         while True:
-            time.sleep(1)
+            try:
+                time.sleep(1)
+                if not observer.is_alive():
+                    logging.error("Observer thread died, restarting...")
+                    observer.stop()
+                    observer.join()
+                    observer = Observer()
+                    observer.schedule(event_handler, watch_path, recursive=False)
+                    observer.start()
+            except Exception as e:
+                logging.error(f"Error in main loop: {str(e)}")
+                time.sleep(5)  # Wait before retrying
+                
     except Exception as e:
-        logging.error(f"Error in file monitoring: {str(e)}")
-        observer.stop()
-    except KeyboardInterrupt:
-        observer.stop()
-        logging.info("\nStopping folder monitoring...")
-    
-    observer.join()
+        logging.error(f"Fatal error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
