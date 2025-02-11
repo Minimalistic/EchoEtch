@@ -67,7 +67,7 @@ class AudioFileHandler(FileSystemEventHandler):
         self.last_health_check = time.time()
         self.last_directory_scan = time.time()
         self.health_check_interval = 3600  # Run health check every hour
-        self.directory_scan_interval = 10  # Scan directory every 10 seconds
+        self.directory_scan_interval = 300  # Scan directory every 5 minutes
         self.max_processed_files = 1000  # Maximum number of processed files to track
         self.files_in_progress = {}  # Track files that are being monitored for stability
         self.stability_check_interval = 1  # Check file stability every second
