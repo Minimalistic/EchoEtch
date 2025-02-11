@@ -34,17 +34,6 @@ class NoteManager:
         daily_folder.mkdir(parents=True, exist_ok=True)
         return daily_folder
 
-    def _format_title(self, title: str) -> str:
-        """
-        Format a title by replacing hyphens with spaces and capitalizing words
-        """
-        # Replace hyphens with spaces
-        title = title.replace('-', ' ')
-        # Capitalize words, being careful with articles and conjunctions
-        return ' '.join(word.capitalize() if word.lower() not in ['a', 'an', 'the', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so', 'at', 'by', 'in', 'of', 'on', 'to', 'up', 'as'] or i == 0 
-                       else word.lower() 
-                       for i, word in enumerate(title.split()))
-
     def create_note(self, processed_content: Dict, audio_file: Path):
         """
         Create a markdown note in the Obsidian vault
@@ -106,9 +95,8 @@ class NoteManager:
         # Build note content
         note_content = []
         
-        # Add title and tags at the top - use clean title without date/time prefix
-        formatted_title = self._format_title(title)
-        note_content.append(f"# {formatted_title}")
+        # Add title and tags at the top
+        note_content.append(f"# {title}")
         if processed_content.get('tags'):
             note_content.append(' '.join(processed_content['tags']))
         note_content.append("")  # Add blank line after tags
