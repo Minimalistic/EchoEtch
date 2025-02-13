@@ -16,7 +16,7 @@ class WhisperTranscriber:
             "Maintain proper sentence structure and punctuation."
         )
 
-    def transcribe(self, audio_path: Path) -> str:
+    def transcribe(self, audio_path: Path) -> dict:
         """
         Transcribe an audio file using Whisper
         
@@ -24,7 +24,7 @@ class WhisperTranscriber:
             audio_path (Path): Path to the audio file
             
         Returns:
-            str: Transcribed text
+            dict: Dictionary containing transcribed text and metadata
         """
         try:
             # Use better settings for GPU processing
@@ -42,21 +42,54 @@ class WhisperTranscriber:
             }
             
             result = self.model.transcribe(str(audio_path), **options)
-            text = result["text"].strip()
             
-            # Clean up the text
-            # Remove multiple newlines
-            text = re.sub(r'\n\s*\n', '\n', text)
-            # Fix common punctuation issues
-            text = re.sub(r'\s+([.,!?])', r'\1', text)
-            # Ensure proper spacing after punctuation
-            text = re.sub(r'([.,!?])([^\s])', r'\1 \2', text)
-            # Remove any repeated phrases (3 or more words that repeat)
-            text = self._remove_repeated_phrases(text)
+            # Extract and structure the metadata
+            processed_result = {
+                "text": result["text"].strip(),
+                "language": result.get("language", "unknown"),
+                "segments": []
+            }
             
-            return text
+            # Process each segment
+            for segment in result.get("segments", []):
+                processed_segment = {
+                    "text": segment["text"],
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "confidence": segment.get("avg_logprob", 0),
+                    "no_speech_prob": segment.get("no_speech_prob", 0),
+                    "words": []
+                }
+                
+                # Process word-level information if available
+                for word in segment.get("words", []):
+                    processed_segment["words"].append({
+                        "word": word["word"],
+                        "start": word["start"],
+                        "end": word["end"],
+                        "confidence": word.get("probability", 0)
+                    })
+                
+                processed_result["segments"].append(processed_segment)
+            
+            # Clean up the main text
+            processed_result["text"] = self._clean_text(processed_result["text"])
+            
+            return processed_result
         except Exception as e:
             raise Exception(f"Transcription failed: {str(e)}")
+
+    def _clean_text(self, text: str) -> str:
+        """Clean up the transcribed text."""
+        # Remove multiple newlines
+        text = re.sub(r'\n\s*\n', '\n', text)
+        # Fix common punctuation issues
+        text = re.sub(r'\s+([.,!?])', r'\1', text)
+        # Ensure proper spacing after punctuation
+        text = re.sub(r'([.,!?])([^\s])', r'\1 \2', text)
+        # Remove any repeated phrases (3 or more words that repeat)
+        text = self._remove_repeated_phrases(text)
+        return text
 
     def _remove_repeated_phrases(self, text):
         """Remove repeated phrases of 3 or more words from the text."""

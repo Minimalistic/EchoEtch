@@ -276,18 +276,28 @@ class AudioFileHandler(FileSystemEventHandler):
                 return
             
             logging.info("Starting transcription...")
-            transcription = self.transcriber.transcribe(file_path)
+            transcription_data = self.transcriber.transcribe(file_path)
             logging.info("Transcription completed successfully")
             
-            logging.info("Processing with Ollama...")
-            processed_content = self.processor.process_transcription(transcription, file_path.name)
+            # Log metadata information
+            if transcription_data.get("language"):
+                logging.info(f"Detected language: {transcription_data['language']}")
+            
+            # Log confidence information
+            low_confidence_segments = [s for s in transcription_data.get("segments", []) 
+                                    if s.get("confidence", 0) < -1.0]
+            if low_confidence_segments:
+                logging.warning(f"Found {len(low_confidence_segments)} low confidence segments")
+            
+            # Process with Ollama
+            processed_content = self.processor.process_transcription(transcription_data, file_path.name)
             logging.info("Ollama processing completed")
             
-            logging.info("Creating note...")
+            # Create note
             self.note_manager.create_note(processed_content, file_path)
             logging.info(f"Note created successfully for: {file_path}")
             
-            # Add to processed files set
+            # Add to processed files
             self.processed_files.add(file_path.name)
             
             # Remove from failed files if it was there

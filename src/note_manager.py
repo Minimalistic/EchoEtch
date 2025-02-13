@@ -95,20 +95,51 @@ class NoteManager:
         # Build note content
         note_content = []
         
-        # Add title and tags at the top
-        note_content.append(f"# {title}")
-        if processed_content.get('tags'):
-            note_content.append(' '.join(processed_content['tags']))
-        note_content.append("")  # Add blank line after tags
+        # Add YAML frontmatter with metadata
+        note_content.extend([
+            "---",
+            f"title: {title}",
+            f"date: {now.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"tags: {' '.join(processed_content.get('tags', []))}",
+            f"audio: {audio_rel_path}",
+        ])
         
-        # Add source audio link
-        note_content.append(f"Source Audio: ![[{audio_rel_path}]]")
-        # Add main content (the transcription)
-        note_content.append(processed_content.get('content', ''))
+        # Add language if available
+        if processed_content.get('language'):
+            note_content.append(f"language: {processed_content['language']}")
         
+        # Close frontmatter
+        note_content.append("---\n")
+        
+        # Add title
+        note_content.append(f"# {title}\n")
+        
+        # Add metadata section if there's interesting metadata
+        if any(key in processed_content for key in ['language', 'confidence_issues', 'non_speech_sections']):
+            note_content.append("## Metadata")
+            if processed_content.get('language'):
+                note_content.append(f"- Language: {processed_content['language']}")
+            if processed_content.get('confidence_issues'):
+                note_content.append("- Low confidence sections noted in content with [uncertain] tags")
+            if processed_content.get('non_speech_sections'):
+                note_content.append("- Contains non-speech sections (marked in content)")
+            note_content.append("")  # Add blank line after metadata
+        
+        # Add content
+        note_content.append(processed_content.get('formatted_content', ''))
+        
+        # Add audio player
+        note_content.extend([
+            "",
+            "## Audio",
+            f"![[{audio_rel_path}]]"
+        ])
+        
+        # Write the note
         try:
-            note_path.write_text('\n'.join(note_content), encoding='utf-8')
-            logging.info(f"Note created at {note_path}")
+            with open(note_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(note_content))
+            logging.info(f"Note created successfully at {note_path}")
         except Exception as e:
             logging.error(f"Failed to create note: {str(e)}")
             raise Exception(f"Failed to create note: {str(e)}")

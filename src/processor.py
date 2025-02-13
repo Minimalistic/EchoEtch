@@ -58,27 +58,71 @@ class OllamaProcessor:
                     logging.error("All Ollama API attempts failed")
                     raise
 
-    def process_transcription(self, transcription: str, audio_filename: str) -> Dict:
+    def process_transcription(self, transcription_data: dict, audio_filename: str) -> Dict:
         """Process the transcription to generate tags and a title."""
         try:
             logging.info("Starting Ollama processing...")
             
             # Clean the transcription before processing
-            cleaned_transcription = self.clean_text(transcription)
-            if cleaned_transcription != transcription:
-                logging.info("Cleaned problematic characters from transcription")
-                
+            cleaned_transcription = self.clean_text(transcription_data["text"])
+            
             # Get the list of allowed tags
             allowed_tags = list(self.tag_manager._allowed_tags)
             allowed_tags_str = '\n'.join(allowed_tags)
             
-            prompt = f"""Given this transcription from an audio note and the list of ALLOWED TAGS below:
+            # Build metadata information
+            metadata = []
+            
+            # Add language information
+            if transcription_data.get("language"):
+                metadata.append(f"Language: {transcription_data['language']}")
+            
+            # Process segments to identify notable features
+            segments_info = []
+            for segment in transcription_data.get("segments", []):
+                # Calculate pause before this segment
+                if segments_info:  # Not the first segment
+                    pause_duration = segment["start"] - segments_info[-1]["end"]
+                    if pause_duration > 1.0:  # Only note significant pauses
+                        segments_info.append({
+                            "type": "pause",
+                            "duration": round(pause_duration, 1),
+                            "position": segment["start"]
+                        })
+                
+                # Add segment with confidence info
+                segments_info.append({
+                    "type": "segment",
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "confidence": segment["confidence"],
+                    "no_speech_prob": segment["no_speech_prob"]
+                })
+            
+            # Convert segments info to readable format
+            for info in segments_info:
+                if info["type"] == "pause":
+                    metadata.append(f"[Pause: {info['duration']}s at {info['position']}s]")
+                elif info["type"] == "segment":
+                    if info["no_speech_prob"] > 0.5:  # Likely background noise or non-speech
+                        metadata.append(f"[Non-speech section: {info['start']}-{info['end']}s]")
+                    elif info["confidence"] < -1.0:  # Low confidence section
+                        metadata.append(f"[Low confidence section: {info['start']}-{info['end']}s]")
+            
+            metadata_str = "\n".join(metadata)
+            
+            prompt = f"""Given this transcription from an audio note with metadata and the list of ALLOWED TAGS below:
+
+METADATA:
+{metadata_str}
+
 1. Format the transcription by:
-   - Adding appropriate line breaks where natural pauses or topic changes occur
-   - Using only single line breaks between paragraphs (no multiple blank lines)
-   - Adding markdown headers (# or ##) for major topic changes or sections, but only when it clearly makes sense
-   - DO NOT prefix headers with "Note:" - use concise, descriptive headers that reflect the content
+   - Using the metadata to inform natural breaks and section divisions
+   - Adding appropriate line breaks where pauses or topic changes occur
+   - Using markdown headers (# or ##) for major topic changes or sections
+   - Adding [uncertain] tags for low confidence sections
    - Preserving the original meaning and content
+   - Using single line breaks between paragraphs
 2. Generate a clear, concise filename (without extension)
 3. Select the most relevant tags from ONLY the allowed tags list that apply to this content
 
@@ -100,58 +144,19 @@ Respond in this exact JSON format:
     "formatted_content": "The formatted transcription with single line breaks"
 }}"""
 
-            # Make API call with retry
-            api_response = self.call_ollama_with_retry(prompt)
-            if not api_response:
-                raise ValueError("Failed to get valid response from Ollama")
+            response = self.call_ollama_with_retry(prompt)
+            if not response or "response" not in response:
+                raise ValueError("Invalid response from Ollama")
 
-            result = api_response['response']
             try:
-                # Try to find the JSON object in the response using a more robust method
-                json_match = re.search(r'({[\s\S]*})', result)
-                if json_match:
-                    result = json_match.group(1)
-                
-                # Clean the result string
-                result = self.clean_text(result)
-                
-                parsed = json.loads(result)
-                
-                # Ensure the formatted content uses proper line endings
-                if "formatted_content" in parsed:
-                    content = parsed["formatted_content"]
-                    # Clean the formatted content
-                    content = self.clean_text(content)
-                    # Replace multiple newlines with a single newline
-                    content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
-                    parsed["formatted_content"] = content
-                
-                # Filter tags and return the result
-                filtered_tags = self.tag_manager.filter_tags(parsed["tags"])
-                return {
-                    "title": parsed["title"].strip(),
-                    "tags": filtered_tags,
-                    "content": parsed.get("formatted_content", cleaned_transcription)
-                }
-            except (json.JSONDecodeError, AttributeError) as e:
-                logging.error(f"Failed to parse Ollama response: {str(e)}")
-                logging.debug(f"Raw response: {result}")
-                # Log problematic characters if any
-                if any(ord(c) < 32 and c not in '\n\t' for c in result):
-                    problem_chars = [(i, ord(c)) for i, c in enumerate(result) if ord(c) < 32 and c not in '\n\t']
-                    logging.debug(f"Found problematic characters at positions: {problem_chars}")
-                # Fallback to using original filename and basic tags
-                return {
-                    "title": os.path.splitext(audio_filename)[0],
-                    "tags": ["#audio", "#note"],
-                    "content": cleaned_transcription
-                }
+                result = json.loads(response["response"])
+                # Validate the result has required fields
+                if not all(k in result for k in ["title", "tags", "formatted_content"]):
+                    raise ValueError("Missing required fields in Ollama response")
+                return result
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in Ollama response")
                 
         except Exception as e:
-            logging.error(f"Ollama processing failed: {str(e)}")
-            # Fallback to using original filename
-            return {
-                "title": os.path.splitext(audio_filename)[0],
-                "tags": ["#audio", "#note"],
-                "content": cleaned_transcription
-            }
+            logging.error(f"Error processing transcription: {str(e)}")
+            raise
