@@ -95,24 +95,19 @@ class NoteManager:
         # Build note content
         note_content = []
         
-        # Add YAML frontmatter with metadata
-        note_content.extend([
-            "---",
-            f"title: {title}",
-            f"date: {now.strftime('%Y-%m-%d %H:%M:%S')}",
-            f"tags: {' '.join(processed_content.get('tags', []))}",
-            f"audio: {audio_rel_path}",
-        ])
-        
-        # Add language if available
-        if processed_content.get('language'):
-            note_content.append(f"language: {processed_content['language']}")
-        
-        # Close frontmatter
-        note_content.append("---\n")
-        
         # Add title
         note_content.append(f"# {title}\n")
+        
+        # Add audio player right after title
+        note_content.extend([
+            f"![[{audio_rel_path}]]\n"
+        ])
+        
+        # Add tags if present
+        if processed_content.get('tags'):
+            # Strip any existing hashtags and add a single one
+            formatted_tags = [tag.lstrip('#') for tag in processed_content.get('tags', [])]
+            note_content.append(f"{' '.join(['#' + tag for tag in formatted_tags])}\n")
         
         # Add metadata section if there's interesting metadata
         if any(key in processed_content for key in ['language', 'confidence_issues', 'non_speech_sections']):
@@ -127,13 +122,6 @@ class NoteManager:
         
         # Add content
         note_content.append(processed_content.get('formatted_content', ''))
-        
-        # Add audio player
-        note_content.extend([
-            "",
-            "## Audio",
-            f"![[{audio_rel_path}]]"
-        ])
         
         # Write the note
         try:

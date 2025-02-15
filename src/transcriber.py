@@ -2,6 +2,10 @@ import whisper
 from pathlib import Path
 import torch
 import re
+import warnings
+
+# Filter out specific Whisper warnings about Triton/CUDA
+warnings.filterwarnings('ignore', message='Failed to launch Triton kernels')
 
 class WhisperTranscriber:
     def __init__(self, model_size="base"):
