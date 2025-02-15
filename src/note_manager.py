@@ -9,8 +9,10 @@ import shutil
 class NoteManager:
     def __init__(self):
         self.vault_path = Path(os.getenv('OBSIDIAN_VAULT_PATH'))
-        self.notes_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes')
+        self.notes_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'notes')
+        self.audio_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'notes') / "audio"
         self.notes_folder.mkdir(parents=True, exist_ok=True)
+        self.audio_folder.mkdir(parents=True, exist_ok=True)
 
     def _sanitize_filename(self, filename: str) -> str:
         """
@@ -44,19 +46,19 @@ class NoteManager:
             logging.error(f"Error extracting datetime from filename: {str(e)}")
             return None, None
 
-    def _get_daily_folder(self, date_str: str = None) -> Path:
+    def _get_audio_folder(self, date_str: str = None) -> Path:
         """
-        Get or create a daily folder for storing audio files
+        Get or create a dated audio folder for storing audio files
         Args:
             date_str (str): Optional date string in YYYY-MM-DD format. If None, uses current date.
         Returns:
-            Path: Path to the daily folder
+            Path: Path to the audio folder
         """
         if not date_str:
             date_str = datetime.now().strftime("%Y-%m-%d")
-        daily_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes') / date_str / "audio"
-        daily_folder.mkdir(parents=True, exist_ok=True)
-        return daily_folder
+        audio_folder = self.audio_folder / date_str
+        audio_folder.mkdir(parents=True, exist_ok=True)
+        return audio_folder
 
     def create_note(self, processed_content: Dict, audio_file: Path):
         """
@@ -73,7 +75,7 @@ class NoteManager:
         if not source_date:
             source_date, source_time = self._extract_datetime_from_filename(audio_file)
         
-        daily_folder = self._get_daily_folder(source_date)
+        audio_folder = self._get_audio_folder(source_date)
         
         # Create new audio filename with source date/time or current time
         if source_date:
@@ -89,10 +91,10 @@ class NoteManager:
         title = processed_content.get('title', 'Untitled Note')
         sanitized_title = self._sanitize_filename(title[:30])
         new_audio_name = f"{date_time}_{sanitized_title}{audio_file.suffix}"
-        new_audio_path = daily_folder / new_audio_name
+        new_audio_path = audio_folder / new_audio_name
         
-        # Move audio file to daily folder if it's not already there
-        if audio_file.parent != daily_folder:
+        # Move audio file to audio folder if it's not already there
+        if audio_file.parent != audio_folder:
             new_audio_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Handle case where file already exists
@@ -101,7 +103,7 @@ class NoteManager:
                 suffix = new_audio_path.suffix
                 counter = 1
                 while new_audio_path.exists():
-                    new_audio_path = daily_folder / f"{base}_{counter}{suffix}"
+                    new_audio_path = audio_folder / f"{base}_{counter}{suffix}"
                     counter += 1
             
             logging.info(f"Moving audio file from {audio_file} to {new_audio_path}")
@@ -124,7 +126,7 @@ class NoteManager:
         
         # Create the note with matching naming convention
         note_filename = f"{date_time}_{sanitized_title}.md"
-        note_path = daily_folder.parent / note_filename
+        note_path = self.notes_folder / note_filename
         
         # Create relative link to audio file
         audio_rel_path = os.path.relpath(new_audio_path, self.vault_path)
