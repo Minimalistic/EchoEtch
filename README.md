@@ -1,6 +1,6 @@
-# TalkToNote
+# VoiceVault
 
-An automated system that converts audio notes into well-formatted Markdown notes using local AI processing.
+An automated system that converts audio notes into formatted Markdown notes with allowed tags using local AI processing.
 
 ## Features
 
@@ -9,6 +9,7 @@ An automated system that converts audio notes into well-formatted Markdown notes
 - Processes transcriptions with Ollama (local)
 - Auto-generates formatted Markdown notes with tags
 - Links original audio files in Obsidian vault
+- Tag management system with allowed tags support
 - Completely local processing - no cloud services required
 
 ## Prerequisites
@@ -36,5 +37,6 @@ An automated system that converts audio notes into well-formatted Markdown notes
 Edit the `.env` file to configure:
 - Audio input folder path
 - Obsidian vault path
-- Ollama model name (default: mistral)
+- Ollama model name and settings
 - Note template settings
+- Allowed tags file location

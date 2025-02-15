@@ -413,7 +413,12 @@ def ensure_ollama_running():
             return False
 
 def main():
-    load_dotenv()
+    load_dotenv(override=True)
+    
+    # Debug: Print environment variables
+    logging.info(f"WATCH_FOLDER = {os.getenv('WATCH_FOLDER')}")
+    logging.info(f"OBSIDIAN_VAULT_PATH = {os.getenv('OBSIDIAN_VAULT_PATH')}")
+    logging.info(f"NOTES_FOLDER = {os.getenv('NOTES_FOLDER')}")
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
