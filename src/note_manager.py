@@ -23,14 +23,38 @@ class NoteManager:
         # Trim spaces from ends
         return sanitized.strip()
 
-    def _get_daily_folder(self) -> Path:
+    def _extract_datetime_from_filename(self, filename: Path) -> tuple:
+        """
+        Extract date and time from filename if it starts with a date pattern YYYY-MM-DD
+        Returns tuple of (date_str, time_str) or (None, None) if not found
+        """
+        try:
+            # Extract date and time pattern from filename
+            datetime_match = re.match(r'(\d{4}-\d{2}-\d{2})[-_](\d{2}[-_]\d{2}(?:AM|PM)?)', filename.stem, re.IGNORECASE)
+            if datetime_match:
+                return datetime_match.group(1), datetime_match.group(2)
+            
+            # If only date is found
+            date_match = re.match(r'(\d{4}-\d{2}-\d{2})', filename.stem)
+            if date_match:
+                return date_match.group(1), None
+                
+            return None, None
+        except Exception as e:
+            logging.error(f"Error extracting datetime from filename: {str(e)}")
+            return None, None
+
+    def _get_daily_folder(self, date_str: str = None) -> Path:
         """
         Get or create a daily folder for storing audio files
+        Args:
+            date_str (str): Optional date string in YYYY-MM-DD format. If None, uses current date.
         Returns:
             Path: Path to the daily folder
         """
-        today = datetime.now().strftime("%Y-%m-%d")
-        daily_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes') / today / "audio"
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        daily_folder = self.vault_path / os.getenv('NOTES_FOLDER', 'daily_notes') / date_str / "audio"
         daily_folder.mkdir(parents=True, exist_ok=True)
         return daily_folder
 
@@ -42,12 +66,26 @@ class NoteManager:
             processed_content (Dict): Processed content from Ollama
             audio_file (Path): Path to the original audio file
         """
-        # First, handle the audio file move
-        daily_folder = self._get_daily_folder()
+        # Get source date from processed content or extract from filename
+        source_date = processed_content.get('source_date')
+        source_time = processed_content.get('source_time')
         
-        # Create new audio filename with date, time and description
-        now = datetime.now()
-        date_time = now.strftime("%Y-%m-%d_%I-%M%p")
+        if not source_date:
+            source_date, source_time = self._extract_datetime_from_filename(audio_file)
+        
+        daily_folder = self._get_daily_folder(source_date)
+        
+        # Create new audio filename with source date/time or current time
+        if source_date:
+            if source_time:
+                date_time = f"{source_date}_{source_time}"
+            else:
+                now = datetime.now()
+                date_time = f"{source_date}_{now.strftime('%I-%M%p')}"
+        else:
+            now = datetime.now()
+            date_time = now.strftime("%Y-%m-%d_%I-%M%p")
+            
         title = processed_content.get('title', 'Untitled Note')
         sanitized_title = self._sanitize_filename(title[:30])
         new_audio_name = f"{date_time}_{sanitized_title}{audio_file.suffix}"

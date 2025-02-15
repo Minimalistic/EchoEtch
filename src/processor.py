@@ -58,6 +58,23 @@ class OllamaProcessor:
                     logging.error("All Ollama API attempts failed")
                     raise
 
+    def clean_formatted_content(self, content: str) -> str:
+        """Clean the formatted content by removing prompt artifacts and transcription markers."""
+        # Remove any lines about allowed tags
+        content = re.sub(r'You must only use tags from the ALLOWED TAGS list above\..*', '', content, flags=re.IGNORECASE | re.MULTILINE)
+        content = re.sub(r'If no tags from the allowed list are relevant.*', '', content, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # Remove transcription markers and metadata
+        content = re.sub(r'\[uncertain\]', '', content)
+        content = re.sub(r'\[Pause: [^\]]+\]', '', content)  # Remove pause markers
+        content = re.sub(r'\[Non-speech section: [^\]]+\]', '', content)  # Remove non-speech markers
+        content = re.sub(r'\[Low confidence section: [^\]]+\]', '', content)  # Remove confidence markers
+        
+        # Remove any empty lines that might have been created
+        content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+        
+        return content.strip()
+
     def process_transcription(self, transcription_data: dict, audio_filename: str) -> Dict:
         """Process the transcription to generate tags and a title."""
         try:
@@ -153,6 +170,10 @@ Respond in this exact JSON format:
                 # Validate the result has required fields
                 if not all(k in result for k in ["title", "tags", "formatted_content"]):
                     raise ValueError("Missing required fields in Ollama response")
+                
+                # Clean the formatted content
+                result["formatted_content"] = self.clean_formatted_content(result["formatted_content"])
+                
                 return result
             except json.JSONDecodeError:
                 raise ValueError("Invalid JSON in Ollama response")

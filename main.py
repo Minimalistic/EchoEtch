@@ -13,13 +13,14 @@ import signal
 import sys
 import gc
 import json
+import re
+from datetime import datetime
 
 # Set up logging configuration
 def setup_logging():
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
     # Configure the rotating file handler
     log_file = log_dir / "talknote.log"
     max_bytes = 10 * 1024 * 1024  # 10MB per file
@@ -264,6 +265,20 @@ class AudioFileHandler(FileSystemEventHandler):
         except Exception as e:
             logging.error(f"Failed to move file {file_path} to error directory: {str(e)}")
 
+    def _extract_source_datetime(self, file_path: Path) -> tuple:
+        """Extract the source date and time from the audio filename"""
+        try:
+            # Extract date and optionally time from filename
+            datetime_match = re.match(r'(\d{4}-\d{2}-\d{2})(?:[-_](\d{2}[-_]\d{2}(?:AM|PM)?))?\b', file_path.stem, re.IGNORECASE)
+            if datetime_match:
+                date = datetime_match.group(1)
+                time = datetime_match.group(2) if datetime_match.group(2) else None
+                return date, time
+            return None, None
+        except Exception as e:
+            logging.error(f"Error extracting datetime from filename: {str(e)}")
+            return None, None
+
     def _process_audio_file(self, file_path):
         try:
             logging.info(f"Processing file: {file_path}")
@@ -274,6 +289,9 @@ class AudioFileHandler(FileSystemEventHandler):
             if not file_path.exists():
                 logging.debug(f"File not found (may have been moved): {file_path}")
                 return
+            
+            # Extract source date and time
+            source_date, source_time = self._extract_source_datetime(file_path)
             
             logging.info("Starting transcription...")
             transcription_data = self.transcriber.transcribe(file_path)
@@ -291,6 +309,13 @@ class AudioFileHandler(FileSystemEventHandler):
             
             # Process with Ollama
             processed_content = self.processor.process_transcription(transcription_data, file_path.name)
+            
+            # Add source date/time to processed content
+            if source_date:
+                processed_content['source_date'] = source_date
+                if source_time:
+                    processed_content['source_time'] = source_time
+            
             logging.info("Ollama processing completed")
             
             # Create note
