@@ -68,14 +68,14 @@ class AudioFileHandler(FileSystemEventHandler):
         self.last_health_check = time.time()
         self.last_directory_scan = time.time()
         self.health_check_interval = 3600  # Run health check every hour
-        self.directory_scan_interval = 30  # Scan directory every 5 minutes
+        self.directory_scan_interval = 300  # Scan directory every 5 minutes
         self.max_processed_files = 1000  # Maximum number of processed files to track
         self.files_in_progress = {}  # Track files that are being monitored for stability
         self.stability_check_interval = 1  # Check file stability every second
         self.required_stable_time = 3  # File must be stable for 3 seconds
         self.max_wait_time = 60  # Maximum time to wait for file stability (1 minute)
         self.last_empty_notification = 0  # Track when we last notified about empty folder
-        self.empty_notification_interval = 30  # How often to notify about empty folder (10 minutes)
+        self.empty_notification_interval = 300  # How often to notify about empty folder (10 minutes)
         
         # Ensure error directory exists
         self.error_dir = Path(os.getenv('WATCH_FOLDER')) / 'errors'

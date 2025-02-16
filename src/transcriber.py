@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore', message='Failed to launch Triton kernels')
 
 class WhisperTranscriber:
-    def __init__(self, model_size="base"):
+    def __init__(self, model_size="medium"):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = whisper.load_model(model_size).to(device)
         self.device = device
