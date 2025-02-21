@@ -1,4 +1,4 @@
-# VoiceVault
+# EchoEtch
 
 An automated system that converts audio notes into formatted Markdown notes with allowed tags using local AI processing.
 
