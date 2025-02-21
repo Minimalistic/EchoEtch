@@ -2,6 +2,23 @@
 
 An automated system that converts audio notes into formatted Markdown notes with allowed tags using local AI processing.
 
+## Project Status ⚠️
+
+**Experimental / Work in Progress**
+
+This project is a rapid prototype developed through collaborative AI assistance and personal iteration. As such, it comes with some important caveats:
+
+- 🧪 Experimental: The codebase is in active development
+- 🛠 Unstable: Expect potential breaking changes
+- 🐛 Limited Testing: Minimal comprehensive testing has been performed
+- 🚧 Use at Your Own Risk: Not recommended for production environments without significant review and modification
+
+Contributions, feedback, and improvements are welcome! If you encounter issues or have suggestions, please open an issue on the repository.
+
+## Disclaimer
+
+By using EchoEtch, you acknowledge that you understand and accept the risks associated with using an experimental project. You agree to hold harmless the developers and contributors of EchoEtch for any damages or losses resulting from its use.
+
 ## Features
 
 - Monitors a folder for new audio files
