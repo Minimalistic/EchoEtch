@@ -22,16 +22,26 @@ An automated system that converts audio notes into formatted Markdown notes with
 ## Setup
 
 1. Clone this repository
-2. Install dependencies:
+2. (Optional) Create and activate a virtual environment:
+   ```bash
+   # Using venv (recommended for most users)
+   python -m venv venv
+   source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+   
+   # Alternative: Use conda or your preferred environment manager
+   ```
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Copy `.env.example` to `.env` and configure your paths
-4. Run the watcher:
+4. Copy `.env.example` to `.env` and configure your paths
+5. With Ollama.ai installed locally, open a new terminal and run `ollama pull mistral` (or whatever model you want to use)
+6. Ensure the Ollama model you want to use is set in the `.env` file (By default the example .env is set to `mistral`)
+7. Ensure Ollama is running locally by running `ollama serve`
+8. Run the watcher:
    ```bash
    python main.py
    ```
-
 ## Configuration
 
 Edit the `.env` file to configure:
