@@ -18,12 +18,12 @@ class TagManager:
                 logging.info(f"Found tags file at {self.tags_file}")
                 content = self.tags_file.read_text(encoding='utf-8')
                 logging.info(f"Tags file content:\n{content}")
-                # Extract tags (words starting with #) and prepend note-to-text/
+                # Extract tags (words starting with #) and prepend echo-etcher/
                 base_tags = re.findall(r'#[\w-]+', content)
-                # Remove any existing #note-to-text/ prefix to avoid doubling it
-                clean_tags = [tag.replace('#note-to-text/', '') for tag in base_tags]
+                # Remove any existing #echo-etcher/ prefix to avoid doubling it
+                clean_tags = [tag.replace('#echo-etcher/', '') for tag in base_tags]
                 # Add the prefix to all tags
-                self._allowed_tags = {f'#note-to-text/{tag.lstrip("#")}' for tag in clean_tags}
+                self._allowed_tags = {f'#echo-etcher/{tag.lstrip("#")}' for tag in clean_tags}
                 logging.info(f"Loaded allowed tags: {self._allowed_tags}")
             else:
                 logging.warning(f"Tags file not found at {self.tags_file}")
@@ -40,11 +40,11 @@ class TagManager:
         # If no allowed tags are defined, return all proposed tags with prefix
         if not self._allowed_tags:
             logging.info("No allowed tags defined, allowing all proposed tags with prefix")
-            return [f'#note-to-text/{tag.lstrip("#")}' for tag in proposed_tags]
+            return [f'#echo-etcher/{tag.lstrip("#")}' for tag in proposed_tags]
             
-        # Ensure all tags start with #note-to-text/
+        # Ensure all tags start with #echo-etcher/
         formatted_tags = [
-            f'#note-to-text/{tag.lstrip("#")}' if not tag.startswith('#note-to-text/') else tag 
+            f'#echo-etcher/{tag.lstrip("#")}' if not tag.startswith('#echo-etcher/') else tag 
             for tag in proposed_tags
         ]
         logging.info(f"Formatted tags: {formatted_tags}")

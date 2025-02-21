@@ -1,4 +1,4 @@
-# EchoEtch
+# EchoEtcher
 
 An automated system that converts audio notes into formatted Markdown notes with allowed tags using local AI processing.
 
@@ -17,7 +17,7 @@ Contributions, feedback, and improvements are welcome! If you encounter issues o
 
 ## Disclaimer
 
-By using EchoEtch, you acknowledge that you understand and accept the risks associated with using an experimental project. You agree to hold harmless the developers and contributors of EchoEtch for any damages or losses resulting from its use.
+By using EchoEtcher, you acknowledge that you understand and accept the risks associated with using an experimental project. You agree to hold harmless the developers and contributors of EchoEtcher for any damages or losses resulting from its use.
 
 ## Features
 
@@ -44,6 +44,15 @@ The `Daily Notes` folder is used for processed files with the following conventi
 - A sub-folder `audio` is created to store processed audio files
 - Markdown files are generated for each processed audio file
 - A markdown file is saved in the `Daily Notes` folder for each processed audio file and follows the format: `yyyy-MM-dd-Succinct-Generated-File-Name.md`
+
+### Tag Processing
+
+When processing tags from the transcribed audio, EchoEtcher uses a unique approach to tag management:
+
+- The system allows you to specify a set of `allowed_tags`
+- When writing the final tags to the Markdown file, these tags are **prepended** with '#echo-etcher/' 
+- Prepending makes it easier to filter and search for specific tags that were created by EchoEtcher in your notes
+- This approach ensures consistency and improves note organization and discoverability
 
 ## Setup
 
