@@ -4,12 +4,11 @@ An automated system that converts audio notes into formatted Markdown notes with
 
 ## Features
 
-- Monitors a folder for new audio files
-- Transcribes audio using Whisper (local)
-- Processes transcriptions with Ollama (local)
-- Auto-generates formatted Markdown notes with tags
+- Monitors a selected folder for new audio files
+- Transcribes audio locally using Whisper
+- Processes transcriptions locally with Ollama
+- Auto-generates formatted Markdown notes with allowed tags
 - Links original audio files in Obsidian vault
-- Tag management system with allowed tags support
 - Completely local processing - no cloud services required
 
 ## Prerequisites
@@ -18,6 +17,16 @@ An automated system that converts audio notes into formatted Markdown notes with
 - [Ollama](https://ollama.ai/) installed locally
 - FFmpeg installed for audio processing
 - Obsidian vault set up
+
+## File Processing and Storage
+
+### Notes Folder Structure
+
+The `Daily Notes` folder is used for processed files with the following conventions:
+
+- A sub-folder `audio` is created to store processed audio files
+- Markdown files are generated for each processed audio file
+- A markdown file is saved in the `Daily Notes` folder for each processed audio file and follows the format: `yyyy-MM-dd-Succinct-Generated-File-Name.md`
 
 ## Setup
 
